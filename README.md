@@ -7,7 +7,7 @@ A comprehensive Python application for importing, analyzing, and visualizing NBA
 - **Player Analysis**: Fetch and visualize individual player statistics across single or multiple seasons
 - **Team Analysis**: Analyze team performance throughout one or more seasons
 - **League Leaders**: View top performers in any statistical category
-- **League Overview**: Interactive bubble plots showing all players across the league
+- **League Overview**: Interactive bubble plots with team filtering showing all players across the league
 - **Player Comparison**: Compare statistics between two players across multiple seasons
 - **Data Caching**: Download once, analyze many times with cached CSV files
 - **Multi-Season Support**: Analyze and visualize data across multiple seasons
@@ -203,16 +203,19 @@ OVERVIEW_SEASONS_START = 2023       # 2023-24 season
 OVERVIEW_SEASONS_END = 2023         # Single season
 OVERVIEW_STATS = ['PTS', 'AST']     # Multiple stats!
 MIN_GAMES_PLAYED = 20               # Filter for qualified players
-# Creates interactive HTML for each stat:
+# Creates interactive HTML for each stat with:
 # - X-axis: Minutes per game
 # - Y-axis: Selected stat (PTS, then AST)
 # - Bubble size: Player rating
-# - Hover: Player details
+# - Team filter dropdown: Select any team to highlight their players
+# - Hover: Player name, team, and stats
+# - Zoom/Pan: Explore dense areas
 
 # For multiple seasons:
 OVERVIEW_SEASONS_START = 2021       # Start at 2021-22
 OVERVIEW_SEASONS_END = 2023         # End at 2023-24
 OVERVIEW_STATS = ['PTS', 'REB', 'AST', 'STL']  # 4 stats × 3 seasons = 12 visualizations!
+# Use team filter to track roster evolution across seasons!
 ```
 
 ## Team Abbreviations

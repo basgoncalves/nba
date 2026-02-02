@@ -4,7 +4,7 @@
 
 The League Overview analysis creates **interactive bubble plots** that visualize all NBA players in a season, showing the relationship between playing time, performance, and overall player rating.
 
-**NEW**: Now supports multiple stats and season ranges!
+**NEW**: Now supports multiple stats, season ranges, and **team filtering**!
 
 ## Visualization Details
 
@@ -13,6 +13,16 @@ The League Overview analysis creates **interactive bubble plots** that visualize
 - **Y-Axis**: Your chosen statistics (can plot multiple!)
 - **Bubble Size**: Player Rating (composite metric)
 - **Color**: Gradient based on player rating (darker = higher rating)
+
+### Interactive Features
+- **Team Filter Dropdown**: Select any team to focus on their players
+  - Non-selected teams' players appear grayed out (15% opacity)
+  - Selected team players maintain full color with white borders
+  - "All Teams" option to view everyone
+  - Fully reversible - switch between teams instantly
+- **Hover Details**: See player name, team, exact stats
+- **Zoom & Pan**: Explore dense areas of the plot
+- **Export**: Save as PNG or download data
 
 ### Player Rating Formula
 The player rating is calculated as:
@@ -96,9 +106,20 @@ Open any HTML file in your web browser to interact with the visualization!
 
 ## Interactive Features
 
+### Team Filter Dropdown (NEW!)
+- **Located**: Top-left corner of each plot
+- **Options**: "All Teams" + all 30 NBA teams
+- **Functionality**:
+  - Select any team to highlight their players
+  - Non-selected teams fade to gray (15% opacity)
+  - Selected team gets white borders for emphasis
+  - Switch teams instantly - fully reversible
+  - Great for comparing teams or focusing on specific rosters
+
 ### Hover Information
 Hover over any bubble to see:
 - Player name
+- **Team** (NEW!)
 - Minutes per game
 - Selected stat value
 - Player rating
@@ -113,29 +134,29 @@ Click on legend items to show/hide data ranges
 
 ## Use Cases
 
-### 1. Compare Multiple Stats Simultaneously
+### 1. Compare Teams Across Statistics
 ```python
 OVERVIEW_SEASONS_START = 2023
 OVERVIEW_SEASONS_END = 2023
 OVERVIEW_STATS = ['PTS', 'AST', 'REB', 'STL', 'BLK']
 MIN_GAMES_PLAYED = 30
-# Creates 5 different views of the same season!
+# Use team filter to compare Lakers vs Celtics across all stats!
 ```
 
-### 2. Track League Evolution Over Time
+### 2. Track Individual Team Performance Over Time
 ```python
 OVERVIEW_SEASONS_START = 2020       # 2020-21 season
 OVERVIEW_SEASONS_END = 2023         # 2023-24 season
-OVERVIEW_STATS = ['PTS', 'FG3M']    # Track scoring evolution
-MIN_GAMES_PLAYED = 40               # Only full-season players
-# See how three-point shooting has evolved!
+OVERVIEW_STATS = ['PTS']
+MIN_GAMES_PLAYED = 40
+# Filter to one team and see roster evolution season-by-season!
 ```
 
-### 3. Find Efficient Players
+### 3. Find Efficient Players by Team
 ```python
 OVERVIEW_STATS = ['PTS']
 MIN_GAMES_PLAYED = 30
-# Look for large bubbles on the left side = high scoring with less minutes
+# Filter by team, look for large bubbles on the left = high scoring with less minutes
 ```
 
 ### 4. Discover Assist Specialists
