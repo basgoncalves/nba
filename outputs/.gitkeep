@@ -1,0 +1,5 @@
+# NBA Analysis Outputs
+# This folder contains generated visualizations and data exports
+
+*.png
+*.csv
