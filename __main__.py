@@ -36,7 +36,7 @@ LEADERS_SEASON = '2023-24'                 # Single season for league leaders
 
 # League Overview Settings (for 'league_overview' analysis)
 OVERVIEW_SEASONS_START = 2023              # Start year for league overview (e.g., 2023 for 2023-24)
-OVERVIEW_SEASONS_END = 2023                # End year (e.g., 2023 for single season, 2024 for 2023-24 and 2024-25)
+OVERVIEW_SEASONS_END = 2025                # End year (e.g., 2023 for single season, 2024 for 2023-24 and 2024-25)
 OVERVIEW_STATS = ['PTS', 'AST', 'REB']     # Y-axis stats (list: PTS, AST, REB, etc.)
 MIN_GAMES_PLAYED = 20                      # Minimum games played to include player
 

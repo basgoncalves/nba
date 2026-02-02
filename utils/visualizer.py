@@ -440,38 +440,61 @@ class NBAVisualizer:
         if team_column:
             teams = sorted(df[team_column].unique())
             
+            # Get the original color values for restoration
+            # Store color column data for creating gray vs colored distinction
+            color_col = color_column if color_column else size_column
+            
             # Create buttons for dropdown menu
             buttons = [
                 dict(
                     label="All Teams",
-                    method="restyle",
+                    method="update",
                     args=[{
-                        "marker.opacity": [1] * len(df),
+                        "marker.color": [df[color_col].tolist()],
                         "marker.line.width": [0] * len(df),
-                        "marker.line.color": [''] * len(df)
+                        "marker.line.color": [''] * len(df),
+                        "marker.coloraxis": "coloraxis"
                     }]
                 )
             ]
             
             # Add button for each team
             for team in teams:
-                # Create opacity list: 1 for selected team, 0.15 for others
-                opacity_list = [1 if df[team_column].iloc[i] == team else 0.15 
-                               for i in range(len(df))]
+                # For selected team: keep original color scale
+                # For non-selected teams: use gray with lower opacity
+                color_list = []
+                for i in range(len(df)):
+                    if df[team_column].iloc[i] == team:
+                        # Keep original color value for selected team
+                        color_list.append(df[color_col].iloc[i])
+                    else:
+                        # Use None for non-selected to make them gray
+                        color_list.append(None)
+                
                 # Create border for selected team
-                border_width = [2 if df[team_column].iloc[i] == team else 0 
+                border_width = [3 if df[team_column].iloc[i] == team else 0 
                                for i in range(len(df))]
                 border_color = ['white' if df[team_column].iloc[i] == team else '' 
                                for i in range(len(df))]
+                
+                # For non-selected players, we'll make them gray by removing from color axis
+                # and setting explicit gray color
+                marker_colors = []
+                for i in range(len(df)):
+                    if df[team_column].iloc[i] == team:
+                        marker_colors.append(df[color_col].iloc[i])
+                    else:
+                        marker_colors.append('rgba(200, 200, 200, 0.3)')  # Light gray with transparency
                 
                 buttons.append(
                     dict(
                         label=team,
                         method="restyle",
                         args=[{
-                            "marker.opacity": opacity_list,
+                            "marker.color": [marker_colors],
                             "marker.line.width": border_width,
-                            "marker.line.color": border_color
+                            "marker.line.color": border_color,
+                            "marker.coloraxis": None  # Disable color axis to use explicit colors
                         }]
                     )
                 )
