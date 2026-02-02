@@ -523,6 +523,9 @@ def analyze_league_overview(fetcher, processor, visualizer):
                 # Fallback to simpler rating
                 df['PLAYER_RATING'] = df['PTS'] if 'PTS' in df.columns else 0
             
+            # Calculate rating rank (1 = highest rating)
+            df['RATING_RANK'] = df['PLAYER_RATING'].rank(ascending=False, method='min').astype(int)
+            
             # Display summary
             print(f"\n  League Summary - {season}:")
             print("  " + "-" * 66)
@@ -558,7 +561,8 @@ def analyze_league_overview(fetcher, processor, visualizer):
                     xlabel='Minutes Per Game',
                     ylabel=f'{stat} Per Game',
                     save_path=save_path,
-                    team_column='TEAM'
+                    team_column='TEAM',
+                    rank_column='RATING_RANK'
                 )
                 print(f"    ✓ Created {stat} bubble plot")
                 if save_path:

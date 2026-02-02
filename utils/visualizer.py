@@ -341,7 +341,8 @@ class NBAVisualizer:
     
     def plot_interactive_bubble(self, df, x_column, y_column, size_column, 
                                 label_column, title=None, xlabel=None, ylabel=None,
-                                save_path=None, color_column=None, team_column='TEAM'):
+                                save_path=None, color_column=None, team_column='TEAM',
+                                rank_column=None):
         """
         Create an interactive bubble plot using Plotly with team filtering
         
@@ -357,6 +358,7 @@ class NBAVisualizer:
             save_path (str): Path to save HTML file
             color_column (str): Optional column for color coding
             team_column (str): Column containing team names for filtering
+            rank_column (str): Column containing rank values to display with size_column
         """
         if not PLOTLY_AVAILABLE:
             print("Warning: Plotly not installed. Install with: pip install plotly")
@@ -368,6 +370,10 @@ class NBAVisualizer:
         # Check if team column exists
         if team_column not in df.columns:
             team_column = None
+        
+        # Check if rank column exists
+        if rank_column and rank_column not in df.columns:
+            rank_column = None
         
         # Prepare hover data
         hover_data = {
@@ -381,9 +387,20 @@ class NBAVisualizer:
         if team_column:
             hover_data[team_column] = True
         
+        # Add rank to hover data if available
+        if rank_column:
+            hover_data[rank_column] = True
+        
         # Add color column to hover if specified
         if color_column and color_column in df.columns:
             hover_data[color_column] = ':.1f'
+        
+        # Prepare custom data for hover template
+        custom_data_cols = []
+        if team_column:
+            custom_data_cols.append(team_column)
+        if rank_column:
+            custom_data_cols.append(rank_column)
         
         # Create the bubble chart
         fig = px.scatter(
@@ -402,7 +419,7 @@ class NBAVisualizer:
             },
             color_continuous_scale='Viridis',
             size_max=40,
-            custom_data=[team_column] if team_column else None
+            custom_data=custom_data_cols if custom_data_cols else None
         )
         
         # Update layout for better appearance
@@ -427,12 +444,20 @@ class NBAVisualizer:
         
         # Add hover template customization
         hover_template = '<b>%{hovertext}</b><br>'
+        custom_idx = 0
         if team_column:
-            hover_template += f'Team: %{{customdata[0]}}<br>'
-        hover_template += (f'{xlabel or x_column}: %{{x:.1f}}<br>' +
-                          f'{ylabel or y_column}: %{{y:.1f}}<br>' +
-                          f'{size_column.replace("_", " ").title()}: %{{marker.size:.1f}}<br>' +
-                          '<extra></extra>')
+            hover_template += f'Team: %{{customdata[{custom_idx}]}}<br>'
+            custom_idx += 1
+        hover_template += f'{xlabel or x_column}: %{{x:.1f}}<br>'
+        hover_template += f'{ylabel or y_column}: %{{y:.1f}}<br>'
+        
+        # Add rating with rank if available
+        if rank_column:
+            hover_template += f'{size_column.replace("_", " ").title()}: %{{marker.size:.1f}} (rk %{{customdata[{custom_idx}]}})<br>'
+        else:
+            hover_template += f'{size_column.replace("_", " ").title()}: %{{marker.size:.1f}}<br>'
+        
+        hover_template += '<extra></extra>'
         
         fig.update_traces(hovertemplate=hover_template)
         
