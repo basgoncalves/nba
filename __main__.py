@@ -35,10 +35,11 @@ TOP_N = 10                                 # Number of leaders to show
 LEADERS_SEASON = '2023-24'                 # Single season for league leaders
 
 # League Overview Settings (for 'league_overview' analysis)
-OVERVIEW_SEASONS_START = 2023              # Start year for league overview (e.g., 2023 for 2023-24)
-OVERVIEW_SEASONS_END = 2025                # End year (e.g., 2023 for single season, 2024 for 2023-24 and 2024-25)
-OVERVIEW_STATS = ['PTS', 'AST', 'REB']     # Y-axis stats (list: PTS, AST, REB, etc.)
+OVERVIEW_SEASONS_START = 2024              # Start year for league overview (e.g., 2023 for 2023-24)
+OVERVIEW_SEASONS_END = 2026                # End year (e.g., 2023 for single season, 2024 for 2023-24 and 2024-25)
+OVERVIEW_STATS = ['PTS', 'AST', 'REB', 'FG3_PCT']     # Y-axis stats (list: PTS, AST, REB, etc.)
 MIN_GAMES_PLAYED = 20                      # Minimum games played to include player
+OVERVIEW_COLOR_MODE = 'team'               # 'team' for team colors, 'rating' for rating-based gradient
 
 # Statistics to Visualize
 STATS_TO_PLOT = ['PTS', 'AST', 'REB']     # Stats for line charts
@@ -542,31 +543,34 @@ def analyze_league_overview(fetcher, processor, visualizer):
                 df.to_csv(csv_path, index=False)
                 print(f"\n  ✓ Saved data to {csv_path}")
             
-            # Create interactive bubble plot for each stat
-            print(f"\n  Generating {len(OVERVIEW_STATS)} interactive bubble plot(s)...")
-            for stat in OVERVIEW_STATS:
-                if stat not in df.columns:
-                    print(f"  ✗ Stat '{stat}' not found in data, skipping...")
-                    continue
-                
-                save_path = f"{OUTPUT_FOLDER}/league_overview_{season}_{stat}_bubble.html" if SAVE_PLOTS else None
-                
-                visualizer.plot_interactive_bubble(
-                    df, 
-                    x_column='MIN',
-                    y_column=stat,
-                    size_column='PLAYER_RATING',
-                    label_column='PLAYER',
-                    title=f"NBA League Overview - {season} ({stat})",
-                    xlabel='Minutes Per Game',
-                    ylabel=f'{stat} Per Game',
-                    save_path=save_path,
-                    team_column='TEAM',
-                    rank_column='RATING_RANK'
-                )
-                print(f"    ✓ Created {stat} bubble plot")
-                if save_path:
-                    print(f"      -> {save_path}")
+            # Create single interactive bubble plot with multiple stats as subplots
+            print(f"\n  Generating interactive bubble plot with {len(OVERVIEW_STATS)} stat(s)...")
+            
+            # Filter valid stats
+            valid_stats = [stat for stat in OVERVIEW_STATS if stat in df.columns]
+            if not valid_stats:
+                print(f"  ✗ No valid stats found in data")
+                continue
+            
+            save_path = f"{OUTPUT_FOLDER}/league_overview_{season}_bubble.html" if SAVE_PLOTS else None
+            
+            visualizer.plot_multi_stat_subplots(
+                df,
+                x_column='MIN',
+                stats_list=valid_stats,
+                size_column='PLAYER_RATING',
+                label_column='PLAYER',
+                title=f"NBA League Overview - {season}",
+                xlabel='Minutes Per Game',
+                save_path=save_path,
+                team_column='TEAM',
+                rank_column='RATING_RANK',
+                color_mode=OVERVIEW_COLOR_MODE
+            )
+            
+            print(f"  ✓ Created multi-stat bubble plot with {len(valid_stats)} stat(s)")
+            if save_path:
+                print(f"    -> {save_path}")
             
         except FileNotFoundError:
             print(f"  ✗ Cache file not found. Set DOWNLOAD_LATEST=True to download data.")
@@ -578,8 +582,8 @@ def analyze_league_overview(fetcher, processor, visualizer):
             continue
     
     print(f"\n{'='*70}")
-    print(f"Completed {len(seasons)} season(s) with {len(OVERVIEW_STATS)} stat(s) each")
-    print(f"Total visualizations created: {len(seasons) * len(OVERVIEW_STATS)}")
+    print(f"Completed {len(seasons)} season(s)")
+    print(f"Total visualizations created: {len(seasons)}")
     print(f"{'='*70}")
     
     # Open generated HTML files in browser
@@ -591,10 +595,9 @@ def analyze_league_overview(fetcher, processor, visualizer):
         html_files = []
         
         for season in seasons:
-            for stat in OVERVIEW_STATS:
-                html_path = f"{OUTPUT_FOLDER}/league_overview_{season}_{stat}_bubble.html"
-                if os.path.exists(html_path):
-                    html_files.append(html_path)
+            html_path = f"{OUTPUT_FOLDER}/league_overview_{season}_bubble.html"
+            if os.path.exists(html_path):
+                html_files.append(html_path)
         
         if html_files:
             print(f"  Opening {len(html_files)} HTML file(s)...")
@@ -607,7 +610,8 @@ def analyze_league_overview(fetcher, processor, visualizer):
                 # Small delay to avoid overwhelming the browser
                 if i < len(html_files) - 1:
                     time.sleep(0.3)
-            print(f"\n  💡 Tip: If too many tabs opened, set SHOW_PLOTS=False to skip auto-opening")
+            print(f"\n  💡 Tip: Use the 'Select Stats' dropdown to toggle between stats")
+            print(f"  💡 Use 'Show All' to see all stats as subplots simultaneously")
         else:
             print(f"  ⚠ No HTML files found to open")
     elif SAVE_PLOTS and not SHOW_PLOTS:

@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import numpy as np
+import json
+import os
 
 try:
     import plotly.express as px
@@ -26,6 +28,17 @@ class NBAVisualizer:
         sns.set_style(style)
         sns.set_palette(palette)
         self.figure_size = (12, 6)
+        self.team_colors = self._load_team_colors()
+    
+    def _load_team_colors(self):
+        """Load NBA team colors from JSON file"""
+        colors_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'nba_team_colors.json')
+        try:
+            with open(colors_file, 'r') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            print(f"Warning: Team colors file not found at {colors_file}")
+            return {}
     
     def plot_line_chart(self, df, x_column, y_column, title=None, xlabel=None, ylabel=None, 
                         figsize=None, save_path=None):
@@ -562,4 +575,390 @@ class NBAVisualizer:
             fig.write_html(save_path)
         else:
             fig.show()
+    
+    def plot_multi_stat_subplots(self, df, x_column, stats_list, size_column,
+                                  label_column, title=None, xlabel=None,
+                                  save_path=None, color_column=None, team_column='TEAM',
+                                  rank_column=None, color_mode='rating'):
+        """
+        Create interactive bubble plots with checkboxes to toggle between stats as subplots
+        
+        Args:
+            df (pd.DataFrame): Input dataframe
+            x_column (str): Column for x-axis (e.g., minutes played)
+            stats_list (list): List of stat columns to create subplots for
+            size_column (str): Column for bubble size (e.g., player rating)
+            label_column (str): Column for labels (e.g., player names)
+            title (str): Chart title
+            xlabel (str): X-axis label
+            save_path (str): Path to save HTML file
+            color_column (str): Optional column for color coding
+            team_column (str): Column containing team names for filtering
+            rank_column (str): Column containing rank values to display
+            color_mode (str): 'rating' for rating-based colors or 'team' for team colors
+        """
+        if not PLOTLY_AVAILABLE:
+            print("Warning: Plotly not installed. Install with: pip install plotly")
+            return
+        
+        from plotly.subplots import make_subplots
+        import plotly.graph_objects as go
+        
+        # Check columns
+        if team_column not in df.columns:
+            team_column = None
+        if rank_column and rank_column not in df.columns:
+            rank_column = None
+        
+        # Filter valid stats
+        valid_stats = [stat for stat in stats_list if stat in df.columns]
+        if not valid_stats:
+            print("No valid stats found in dataframe")
+            return
+        
+        # Check if dataframe has data
+        if len(df) == 0:
+            print("Empty dataframe - no players to plot")
+            return
+        
+        color_col = color_column if color_column else size_column
+        
+        # Determine colors based on mode
+        if color_mode == 'team' and team_column and team_column in df.columns:
+            # Map team colors
+            marker_colors = []
+            for team in df[team_column]:
+                if team in self.team_colors:
+                    marker_colors.append(self.team_colors[team]['primary'])
+                else:
+                    marker_colors.append('#808080')  # Gray for unknown teams
+            use_colorscale = False
+        else:
+            # Use rating-based color scale
+            marker_colors = df[color_col]
+            use_colorscale = True
+        
+        # Prepare custom data
+        custom_data_cols = []
+        if team_column:
+            custom_data_cols.append(team_column)
+        if rank_column:
+            custom_data_cols.append(rank_column)
+        
+        custom_data = df[custom_data_cols].values if custom_data_cols else None
+        
+        # Create subplots - one row per stat
+        fig = make_subplots(
+            rows=len(valid_stats),
+            cols=1,
+            subplot_titles=[f"{stat} per Game" for stat in valid_stats],
+            vertical_spacing=0.08,
+            specs=[[{"type": "scatter"}] for _ in valid_stats]
+        )
+        
+        # Add a trace for each stat
+        for idx, stat in enumerate(valid_stats, start=1):
+            # Create scatter trace
+            trace_marker = dict(
+                size=df[size_column] / 2,  # Scale down for subplot
+                color=marker_colors,
+                line=dict(width=0, color='white')
+            )
+            
+            # Add colorscale only if using rating mode
+            if use_colorscale:
+                trace_marker['colorscale'] = 'Viridis'
+                trace_marker['showscale'] = (idx == 1)  # Show colorbar only for first subplot
+                if idx == 1:
+                    trace_marker['colorbar'] = dict(
+                        title=size_column.replace('_', ' ').title(),
+                        x=1.12,
+                        len=0.3,
+                        y=0.85
+                    )
+            
+            trace = go.Scatter(
+                x=df[x_column],
+                y=df[stat],
+                mode='markers',
+                name=stat,
+                marker=trace_marker,
+                text=df[label_column],
+                customdata=custom_data,
+                visible=True,  # All visible by default
+                hovertemplate=self._create_hover_template(
+                    xlabel or x_column, stat, size_column, 
+                    team_column, rank_column, custom_data_cols
+                )
+            )
+            
+            fig.add_trace(trace, row=idx, col=1)
+            
+            # Update axes for each subplot
+            fig.update_xaxes(
+                title_text=xlabel or x_column if idx == len(valid_stats) else "",
+                showgrid=True,
+                gridcolor='white',
+                row=idx, col=1
+            )
+            fig.update_yaxes(
+                title_text=f"{stat}",
+                showgrid=True,
+                gridcolor='white',
+                row=idx, col=1
+            )
+        
+        # Create checkboxes for toggling stats
+        buttons = []
+        for i, stat in enumerate(valid_stats):
+            visible = [j == i for j in range(len(valid_stats))]
+            buttons.append(
+                dict(
+                    label=stat,
+                    method='update',
+                    args=[
+                        {'visible': visible},
+                        {
+                            'title': f"{title} - {stat}" if title else f"{stat} Analysis",
+                            'showlegend': False
+                        }
+                    ]
+                )
+            )
+        
+        # Add "Show All" button
+        buttons.insert(0, dict(
+            label='Show All',
+            method='update',
+            args=[
+                {'visible': [True] * len(valid_stats)},
+                {
+                    'title': title or 'League Overview - All Stats',
+                    'showlegend': False
+                }
+            ]
+        ))
+        
+        # Team filter buttons
+        team_buttons = []
+        if team_column:
+            teams = sorted(df[team_column].unique())
+            
+            # All Teams button - restore original colors
+            team_buttons.append(dict(
+                label="All Teams",
+                method="restyle",
+                args=[{
+                    'marker.color': [marker_colors] * len(valid_stats),
+                    'marker.line.width': [0] * len(df),
+                    'marker.line.color': ['white'] * len(df)
+                }]
+            ))
+            
+            # Individual team buttons
+            for team in teams:
+                # Create color list: original color for selected team, gray for others
+                team_marker_colors = []
+                border_widths = []
+                border_colors = []
+                
+                for i in range(len(df)):
+                    if df[team_column].iloc[i] == team:
+                        # Keep original color
+                        if color_mode == 'team':
+                            team_marker_colors.append(marker_colors[i])
+                        else:
+                            team_marker_colors.append(marker_colors.iloc[i] if hasattr(marker_colors, 'iloc') else marker_colors[i])
+                        border_widths.append(3)
+                        border_colors.append('white')
+                    else:
+                        # Gray out non-selected teams
+                        team_marker_colors.append('rgba(200, 200, 200, 0.3)')
+                        border_widths.append(0)
+                        border_colors.append('white')
+                
+                team_buttons.append(dict(
+                    label=team,
+                    method="restyle",
+                    args=[{
+                        'marker.color': [team_marker_colors] * len(valid_stats),
+                        'marker.line.width': border_widths,
+                        'marker.line.color': border_colors
+                    }]
+                ))
+        
+        # Color mode toggle buttons
+        color_mode_buttons = []
+        if team_column:
+            # Team color mode
+            team_color_list = []
+            for team in df[team_column]:
+                if team in self.team_colors:
+                    team_color_list.append(self.team_colors[team]['primary'])
+                else:
+                    team_color_list.append('#808080')
+            
+            color_mode_buttons.append(dict(
+                label="Team Colors",
+                method="restyle",
+                args=[{
+                    'marker.color': [team_color_list] * len(valid_stats),
+                    'marker.coloraxis': [None] * len(valid_stats),
+                    'marker.showscale': [False] * len(valid_stats)
+                }]
+            ))
+            
+            # Rating color mode
+            rating_colors = df[color_col].tolist()
+            color_mode_buttons.append(dict(
+                label="Rating Colors",
+                method="restyle",
+                args=[{
+                    'marker.color': [rating_colors] * len(valid_stats),
+                    'marker.colorscale': ['Viridis'] * len(valid_stats),
+                    'marker.showscale': [True if i == 0 else False for i in range(len(valid_stats))]
+                }]
+            ))
+        
+        # Update layout
+        total_height = 400 * len(valid_stats)
+        
+        updatemenus_list = [
+            # Stats selector
+            dict(
+                buttons=buttons,
+                direction="down",
+                pad={"r": 10, "t": 10},
+                showactive=True,
+                x=0.01,
+                xanchor="left",
+                y=1.02,
+                yanchor="bottom",
+                bgcolor="white",
+                bordercolor="#333",
+                borderwidth=2,
+                font=dict(size=11)
+            )
+        ]
+        
+        # Add team filter if available
+        if team_column:
+            updatemenus_list.append(
+                dict(
+                    buttons=team_buttons,
+                    direction="down",
+                    pad={"r": 10, "t": 10},
+                    showactive=True,
+                    x=0.18,
+                    xanchor="left",
+                    y=1.02,
+                    yanchor="bottom",
+                    bgcolor="white",
+                    bordercolor="#333",
+                    borderwidth=2,
+                    font=dict(size=11)
+                )
+            )
+            
+            # Add color mode toggle
+            updatemenus_list.append(
+                dict(
+                    buttons=color_mode_buttons,
+                    direction="down",
+                    pad={"r": 10, "t": 10},
+                    showactive=True,
+                    x=0.35,
+                    xanchor="left",
+                    y=1.02,
+                    yanchor="bottom",
+                    bgcolor="white",
+                    bordercolor="#333",
+                    borderwidth=2,
+                    font=dict(size=11)
+                )
+            )
+        
+        fig.update_layout(
+            title=dict(
+                text=title or 'NBA League Overview',
+                font=dict(size=18, family='Arial Black'),
+                x=0.5,
+                xanchor='center'
+            ),
+            height=total_height,
+            showlegend=False,
+            hovermode='closest',
+            plot_bgcolor='rgba(240,240,240,0.9)',
+            font=dict(size=11),
+            margin=dict(t=150, b=50, l=80, r=150),
+            updatemenus=updatemenus_list
+        )
+        
+        # Add annotations for dropdowns
+        annotations = [
+            dict(
+                text="<b>Select Stats:</b>",
+                xref="paper",
+                yref="paper",
+                x=0.01,
+                y=1.04,
+                xanchor="left",
+                yanchor="bottom",
+                showarrow=False,
+                font=dict(size=12, color="#333")
+            )
+        ]
+        
+        if team_column:
+            annotations.extend([
+                dict(
+                    text="<b>Filter by Team:</b>",
+                    xref="paper",
+                    yref="paper",
+                    x=0.18,
+                    y=1.04,
+                    xanchor="left",
+                    yanchor="bottom",
+                    showarrow=False,
+                    font=dict(size=12, color="#333")
+                ),
+                dict(
+                    text="<b>Color Mode:</b>",
+                    xref="paper",
+                    yref="paper",
+                    x=0.35,
+                    y=1.04,
+                    xanchor="left",
+                    yanchor="bottom",
+                    showarrow=False,
+                    font=dict(size=12, color="#333")
+                )
+            ])
+        
+        fig.update_layout(annotations=annotations)
+        
+        # Save or show
+        if save_path:
+            fig.write_html(save_path)
+        else:
+            fig.show()
+    
+    def _create_hover_template(self, xlabel, ylabel, size_column, team_column, 
+                               rank_column, custom_data_cols):
+        """Helper to create hover template"""
+        hover_template = '<b>%{text}</b><br>'
+        custom_idx = 0
+        
+        if team_column and team_column in custom_data_cols:
+            hover_template += f'Team: %{{customdata[{custom_idx}]}}<br>'
+            custom_idx += 1
+        
+        hover_template += f'{xlabel}: %{{x:.1f}}<br>'
+        hover_template += f'{ylabel}: %{{y:.1f}}<br>'
+        
+        if rank_column and rank_column in custom_data_cols:
+            hover_template += f'{size_column.replace("_", " ").title()}: (rk %{{customdata[{custom_idx}]}})<br>'
+        
+        hover_template += '<extra></extra>'
+        return hover_template
 
