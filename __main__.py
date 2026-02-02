@@ -557,7 +557,8 @@ def analyze_league_overview(fetcher, processor, visualizer):
                     title=f"NBA League Overview - {season} ({stat})",
                     xlabel='Minutes Per Game',
                     ylabel=f'{stat} Per Game',
-                    save_path=save_path
+                    save_path=save_path,
+                    team_column='TEAM'
                 )
                 print(f"    ✓ Created {stat} bubble plot")
                 if save_path:

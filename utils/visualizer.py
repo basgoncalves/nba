@@ -341,9 +341,9 @@ class NBAVisualizer:
     
     def plot_interactive_bubble(self, df, x_column, y_column, size_column, 
                                 label_column, title=None, xlabel=None, ylabel=None,
-                                save_path=None, color_column=None):
+                                save_path=None, color_column=None, team_column='TEAM'):
         """
-        Create an interactive bubble plot using Plotly
+        Create an interactive bubble plot using Plotly with team filtering
         
         Args:
             df (pd.DataFrame): Input dataframe
@@ -356,6 +356,7 @@ class NBAVisualizer:
             ylabel (str): Y-axis label
             save_path (str): Path to save HTML file
             color_column (str): Optional column for color coding
+            team_column (str): Column containing team names for filtering
         """
         if not PLOTLY_AVAILABLE:
             print("Warning: Plotly not installed. Install with: pip install plotly")
@@ -364,6 +365,10 @@ class NBAVisualizer:
                             save_path=save_path.replace('.html', '.png') if save_path else None)
             return
         
+        # Check if team column exists
+        if team_column not in df.columns:
+            team_column = None
+        
         # Prepare hover data
         hover_data = {
             label_column: True,
@@ -371,6 +376,10 @@ class NBAVisualizer:
             y_column: ':.1f',
             size_column: ':.1f'
         }
+        
+        # Add team to hover data if available
+        if team_column:
+            hover_data[team_column] = True
         
         # Add color column to hover if specified
         if color_column and color_column in df.columns:
@@ -392,7 +401,8 @@ class NBAVisualizer:
                 size_column: size_column.replace('_', ' ').title()
             },
             color_continuous_scale='Viridis',
-            size_max=40
+            size_max=40,
+            custom_data=[team_column] if team_column else None
         )
         
         # Update layout for better appearance
@@ -411,17 +421,93 @@ class NBAVisualizer:
                 gridcolor='white',
                 title_font=dict(size=14)
             ),
-            height=700
+            height=750,
+            margin=dict(t=100)  # More space for dropdown
         )
         
         # Add hover template customization
-        fig.update_traces(
-            hovertemplate='<b>%{hovertext}</b><br>' +
-                         f'{xlabel or x_column}: %{{x:.1f}}<br>' +
-                         f'{ylabel or y_column}: %{{y:.1f}}<br>' +
-                         f'{size_column.replace("_", " ").title()}: %{{marker.size:.1f}}<br>' +
-                         '<extra></extra>'
-        )
+        hover_template = '<b>%{hovertext}</b><br>'
+        if team_column:
+            hover_template += f'Team: %{{customdata[0]}}<br>'
+        hover_template += (f'{xlabel or x_column}: %{{x:.1f}}<br>' +
+                          f'{ylabel or y_column}: %{{y:.1f}}<br>' +
+                          f'{size_column.replace("_", " ").title()}: %{{marker.size:.1f}}<br>' +
+                          '<extra></extra>')
+        
+        fig.update_traces(hovertemplate=hover_template)
+        
+        # Add team filter dropdown if team column exists
+        if team_column:
+            teams = sorted(df[team_column].unique())
+            
+            # Create buttons for dropdown menu
+            buttons = [
+                dict(
+                    label="All Teams",
+                    method="restyle",
+                    args=[{
+                        "marker.opacity": [1] * len(df),
+                        "marker.line.width": [0] * len(df),
+                        "marker.line.color": [''] * len(df)
+                    }]
+                )
+            ]
+            
+            # Add button for each team
+            for team in teams:
+                # Create opacity list: 1 for selected team, 0.15 for others
+                opacity_list = [1 if df[team_column].iloc[i] == team else 0.15 
+                               for i in range(len(df))]
+                # Create border for selected team
+                border_width = [2 if df[team_column].iloc[i] == team else 0 
+                               for i in range(len(df))]
+                border_color = ['white' if df[team_column].iloc[i] == team else '' 
+                               for i in range(len(df))]
+                
+                buttons.append(
+                    dict(
+                        label=team,
+                        method="restyle",
+                        args=[{
+                            "marker.opacity": opacity_list,
+                            "marker.line.width": border_width,
+                            "marker.line.color": border_color
+                        }]
+                    )
+                )
+            
+            # Add dropdown menu
+            fig.update_layout(
+                updatemenus=[
+                    dict(
+                        buttons=buttons,
+                        direction="down",
+                        pad={"r": 10, "t": 10},
+                        showactive=True,
+                        x=0.01,
+                        xanchor="left",
+                        y=1.15,
+                        yanchor="top",
+                        bgcolor="white",
+                        bordercolor="#333",
+                        borderwidth=2,
+                        font=dict(size=11)
+                    )
+                ]
+            )
+            
+            # Add annotation for dropdown
+            fig.add_annotation(
+                text="<b>Filter by Team:</b>",
+                xref="paper",
+                yref="paper",
+                x=0.01,
+                y=1.18,
+                xanchor="left",
+                yanchor="bottom",
+                showarrow=False,
+                font=dict(size=12, color="#333")
+            )
         
         # Save or show
         if save_path:
