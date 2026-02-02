@@ -527,6 +527,35 @@ def analyze_league_overview(fetcher, processor, visualizer):
             # Calculate rating rank (1 = highest rating)
             df['RATING_RANK'] = df['PLAYER_RATING'].rank(ascending=False, method='min').astype(int)
             
+            # Get team standings and add team ranking
+            team_standings = fetcher.get_team_standings(season)
+            if not team_standings.empty and 'TEAM' in df.columns and 'LEAGUE_RANK' in team_standings.columns:
+                # Create a mapping from team abbreviation to league rank
+                team_rank_map = {}
+                for _, row in team_standings.iterrows():
+                    # Try to match by TeamSlug or TeamCity
+                    if 'TeamSlug' in team_standings.columns:
+                        team_rank_map[row['TeamSlug']] = row['LEAGUE_RANK']
+                    if 'TeamCity' in team_standings.columns and 'TeamName' in team_standings.columns:
+                        # Also map by abbreviation using our known teams
+                        team_abbr = None
+                        for t in fetcher.all_teams:
+                            if t['full_name'].lower() == (row['TeamCity'] + ' ' + row['TeamName']).lower():
+                                team_abbr = t['abbreviation']
+                                break
+                        if team_abbr:
+                            team_rank_map[team_abbr] = row['LEAGUE_RANK']
+                
+                # Apply team ranking to each player
+                df['TEAM_RANK'] = df['TEAM'].map(team_rank_map)
+                # Fill any missing values with 999 (unknown)
+                df['TEAM_RANK'] = df['TEAM_RANK'].fillna(999).astype(int)
+                print(f"  ✓ Added team rankings (1-30)")
+            else:
+                # Add placeholder if standings not available
+                df['TEAM_RANK'] = 999
+                print(f"  ⚠ Team rankings not available")
+            
             # Display summary
             print(f"\n  League Summary - {season}:")
             print("  " + "-" * 66)
@@ -565,6 +594,7 @@ def analyze_league_overview(fetcher, processor, visualizer):
                 save_path=save_path,
                 team_column='TEAM',
                 rank_column='RATING_RANK',
+                team_rank_column='TEAM_RANK',
                 color_mode=OVERVIEW_COLOR_MODE
             )
             

@@ -579,7 +579,7 @@ class NBAVisualizer:
     def plot_multi_stat_subplots(self, df, x_column, stats_list, size_column,
                                   label_column, title=None, xlabel=None,
                                   save_path=None, color_column=None, team_column='TEAM',
-                                  rank_column=None, color_mode='rating'):
+                                  rank_column=None, team_rank_column=None, color_mode='rating'):
         """
         Create interactive bubble plots with checkboxes to toggle between stats as subplots
         
@@ -595,6 +595,7 @@ class NBAVisualizer:
             color_column (str): Optional column for color coding
             team_column (str): Column containing team names for filtering
             rank_column (str): Column containing rank values to display
+            team_rank_column (str): Column containing team ranking (1-30)
             color_mode (str): 'rating' for rating-based colors or 'team' for team colors
         """
         if not PLOTLY_AVAILABLE:
@@ -644,6 +645,8 @@ class NBAVisualizer:
             custom_data_cols.append(team_column)
         if rank_column:
             custom_data_cols.append(rank_column)
+        if team_rank_column and team_rank_column in df.columns:
+            custom_data_cols.append(team_rank_column)
         
         custom_data = df[custom_data_cols].values if custom_data_cols else None
         
@@ -688,7 +691,7 @@ class NBAVisualizer:
                 visible=True,  # All visible by default
                 hovertemplate=self._create_hover_template(
                     xlabel or x_column, stat, size_column, 
-                    team_column, rank_column, custom_data_cols
+                    team_column, rank_column, team_rank_column, custom_data_cols
                 )
             )
             
@@ -944,13 +947,18 @@ class NBAVisualizer:
             fig.show()
     
     def _create_hover_template(self, xlabel, ylabel, size_column, team_column, 
-                               rank_column, custom_data_cols):
+                               rank_column, team_rank_column, custom_data_cols):
         """Helper to create hover template"""
         hover_template = '<b>%{text}</b><br>'
         custom_idx = 0
         
         if team_column and team_column in custom_data_cols:
-            hover_template += f'Team: %{{customdata[{custom_idx}]}}<br>'
+            team_text = 'Team: %{customdata[' + str(custom_idx) + ']}'
+            # Add team rank if available
+            if team_rank_column and team_rank_column in custom_data_cols:
+                team_rank_idx = custom_data_cols.index(team_rank_column)
+                team_text += ' (rank %{customdata[' + str(team_rank_idx) + ']})'
+            hover_template += team_text + '<br>'
             custom_idx += 1
         
         hover_template += f'{xlabel}: %{{x:.1f}}<br>'

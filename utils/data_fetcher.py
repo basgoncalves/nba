@@ -7,7 +7,8 @@ from nba_api.stats.endpoints import (
     commonplayerinfo,
     commonteamroster,
     leagueleaders,
-    teamestimatedmetrics
+    teamestimatedmetrics,
+    leaguestandingsv3
 )
 from nba_api.stats.static import players, teams
 import pandas as pd
@@ -163,3 +164,38 @@ class NBADataFetcher:
             list: List of team dictionaries
         """
         return self.all_teams
+    
+    def get_team_standings(self, season='2023-24'):
+        """
+        Get team standings for a season
+        
+        Args:
+            season (str): Season in format 'YYYY-YY'
+            
+        Returns:
+            pd.DataFrame: Team standings with rankings
+        """
+        try:
+            standings = leaguestandingsv3.LeagueStandingsV3(
+                league_id='00',
+                season=season,
+                season_type='Regular Season'
+            )
+            df = standings.get_data_frames()[0]
+            
+            # Add overall league rank based on win percentage
+            if 'WinPCT' in df.columns:
+                df['LEAGUE_RANK'] = df['WinPCT'].rank(ascending=False, method='min').astype(int)
+            elif 'W' in df.columns and 'L' in df.columns:
+                df['WinPCT'] = df['W'] / (df['W'] + df['L'])
+                df['LEAGUE_RANK'] = df['WinPCT'].rank(ascending=False, method='min').astype(int)
+            
+            # Create mapping dictionary with team abbreviation
+            if 'TeamCity' in df.columns and 'TeamName' in df.columns:
+                # Create full team names for matching
+                df['FULL_NAME'] = df['TeamCity'] + ' ' + df['TeamName']
+            
+            return df
+        except Exception as e:
+            print(f"Warning: Could not fetch team standings: {e}")
+            return pd.DataFrame()
