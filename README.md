@@ -4,13 +4,16 @@ A comprehensive Python application for importing, analyzing, and visualizing NBA
 
 ## Features
 
-- **Player Analysis**: Fetch and visualize individual player statistics
-- **Team Analysis**: Analyze team performance throughout a season
+- **Player Analysis**: Fetch and visualize individual player statistics across single or multiple seasons
+- **Team Analysis**: Analyze team performance throughout one or more seasons
 - **League Leaders**: View top performers in any statistical category
-- **Player Comparison**: Compare statistics between two players
+- **League Overview**: Interactive bubble plots showing all players across the league
+- **Player Comparison**: Compare statistics between two players across multiple seasons
+- **Data Caching**: Download once, analyze many times with cached CSV files
+- **Multi-Season Support**: Analyze and visualize data across multiple seasons
 - **Advanced Metrics**: Calculate TS%, EFG%, Game Score, and more
-- **Multiple Visualizations**: Line charts, bar charts, distributions, and more
-- **Easy Configuration**: Simply modify variables at the top of main.py
+- **Multiple Visualizations**: Line charts, bar charts, distributions, interactive bubble plots, and more
+- **Easy Configuration**: Simply modify variables at the top of __main__.py
 
 ## Installation
 
@@ -23,22 +26,49 @@ A comprehensive Python application for importing, analyzing, and visualizing NBA
 
 ## Quick Start
 
-1. Open `main.py` in your editor
+1. Open `__main__.py` in your editor
 
 2. Modify the configuration variables at the top:
    ```python
    ANALYSIS_TYPE = 'player'          # Choose analysis type
+   DOWNLOAD_LATEST = True            # Download fresh data
    PLAYER_NAME = 'LeBron James'      # Player to analyze
-   SEASON = '2023-24'                # Season to analyze
+   SEASONS = ['2023-24']             # Single or multiple seasons
    STATS_TO_PLOT = ['PTS', 'AST', 'REB']  # Stats to visualize
    ```
 
 3. Run the application:
    ```bash
-   python main.py
+   python __main__.py
    ```
 
 4. Check the `outputs` folder for generated charts and CSV files
+
+## Key Features
+
+### 🚀 Data Caching with DOWNLOAD_LATEST
+
+Control whether to download fresh data or use cached files:
+
+- **`DOWNLOAD_LATEST = True`**: Downloads fresh data from NBA API and saves to CSV
+- **`DOWNLOAD_LATEST = False`**: Uses cached CSV files (much faster for testing!)
+
+**Workflow:**
+1. First run: Set `DOWNLOAD_LATEST = True` to download and cache data
+2. Subsequent runs: Set `DOWNLOAD_LATEST = False` for instant loading
+3. Perfect for tweaking visualizations without re-downloading data
+
+### 📊 Multi-Season Analysis
+
+Analyze data across multiple seasons:
+
+```python
+SEASONS = ['2021-22', '2022-23', '2023-24']  # Compare multiple seasons
+```
+
+- Visualizations automatically adjust for multi-season data
+- Each season shown in different colors on charts
+- Perfect for tracking player/team trends over time
 
 ## Configuration Options
 
@@ -49,17 +79,34 @@ Set `ANALYSIS_TYPE` to one of:
 - `'team'` - Analyze team performance
 - `'league_leaders'` - View league leaders in a category
 - `'player_comparison'` - Compare two players side-by-side
+- `'league_overview'` - Interactive bubble plot of all players in the league
 
 ### Common Variables
 
 ```python
+# Data Management
+DOWNLOAD_LATEST = True                 # True: Download, False: Use cache
+
 # Player Settings
 PLAYER_NAME = 'LeBron James'           # Full player name
 PLAYER_NAME_2 = 'Stephen Curry'        # Second player (for comparison)
-SEASON = '2023-24'                     # Format: 'YYYY-YY'
+SEASONS = ['2023-24']                  # List: ['2023-24'] or ['2022-23', '2023-24']
 
 # Team Settings
 TEAM_NAME = 'LAL'                      # Team abbreviation or full name
+
+# League Leaders Settings  
+LEADERS_SEASON = '2023-24'             # Single season (leaders don't support multi-season)
+
+# League Overview Settings
+OVERVIEW_SEASONS_START = 2023              # Start year (e.g., 2023 for 2023-24 season)
+OVERVIEW_SEASONS_END = 2023                # End year (same as start for single season)
+OVERVIEW_STATS = ['PTS', 'AST', 'REB']     # List of stats to visualize
+MIN_GAMES_PLAYED = 20                  # Minimum games to include player
+
+# Visualization Settings
+SHOW_PLOTS = True                      # Auto-open plots in browser/window
+SAVE_PLOTS = True                      # Save plots to files
 
 # Statistics to Plot
 STATS_TO_PLOT = ['PTS', 'AST', 'REB']  # Any valid NBA stat
@@ -146,6 +193,26 @@ ANALYSIS_TYPE = 'team'
 TEAM_NAME = 'GSW'  # Golden State Warriors
 SEASON = '2023-24'
 STATS_TO_PLOT = ['PTS', 'REB', 'AST']
+```
+
+### Example 5: League Overview with Interactive Bubble Plot
+```python
+ANALYSIS_TYPE = 'league_overview'
+DOWNLOAD_LATEST = True
+OVERVIEW_SEASONS_START = 2023       # 2023-24 season
+OVERVIEW_SEASONS_END = 2023         # Single season
+OVERVIEW_STATS = ['PTS', 'AST']     # Multiple stats!
+MIN_GAMES_PLAYED = 20               # Filter for qualified players
+# Creates interactive HTML for each stat:
+# - X-axis: Minutes per game
+# - Y-axis: Selected stat (PTS, then AST)
+# - Bubble size: Player rating
+# - Hover: Player details
+
+# For multiple seasons:
+OVERVIEW_SEASONS_START = 2021       # Start at 2021-22
+OVERVIEW_SEASONS_END = 2023         # End at 2023-24
+OVERVIEW_STATS = ['PTS', 'REB', 'AST', 'STL']  # 4 stats × 3 seasons = 12 visualizations!
 ```
 
 ## Team Abbreviations

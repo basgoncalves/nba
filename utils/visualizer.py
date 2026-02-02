@@ -4,6 +4,13 @@ import seaborn as sns
 import pandas as pd
 import numpy as np
 
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+
 
 class NBAVisualizer:
     """Create visualizations for NBA statistics"""
@@ -43,6 +50,49 @@ class NBAVisualizer:
         plt.xlabel(xlabel or x_column, fontsize=12)
         plt.ylabel(ylabel or y_column, fontsize=12)
         plt.xticks(rotation=45, ha='right')
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        if save_path:
+            plt.savefig(save_path, dpi=300, bbox_inches='tight')
+        else:
+            plt.show()
+        plt.close()
+    
+    def plot_multi_season_line(self, df, x_column, y_column, season_column, 
+                                title=None, xlabel=None, ylabel=None, 
+                                figsize=None, save_path=None):
+        """
+        Create a line chart with multiple seasons shown with different colors
+        
+        Args:
+            df (pd.DataFrame): Input dataframe with season column
+            x_column (str): Column for x-axis (e.g., game number)
+            y_column (str): Column for y-axis (stat to plot)
+            season_column (str): Column containing season labels
+            title (str): Chart title
+            xlabel (str): X-axis label
+            ylabel (str): Y-axis label
+            figsize (tuple): Figure size (width, height)
+            save_path (str): Path to save figure
+        """
+        figsize = figsize or self.figure_size
+        plt.figure(figsize=figsize)
+        
+        # Plot each season separately
+        seasons = df[season_column].unique()
+        for season in seasons:
+            season_df = df[df[season_column] == season]
+            # Reset game numbers for each season to start from 1
+            season_df = season_df.copy()
+            season_df['GAME_NUM_RESET'] = range(1, len(season_df) + 1)
+            plt.plot(season_df['GAME_NUM_RESET'], season_df[y_column], 
+                    marker='o', linewidth=2, markersize=5, label=season, alpha=0.8)
+        
+        plt.title(title or f'{y_column} by {season_column}', fontsize=14, fontweight='bold')
+        plt.xlabel(xlabel or 'Game Number (per season)', fontsize=12)
+        plt.ylabel(ylabel or y_column, fontsize=12)
+        plt.legend(title='Season')
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         
@@ -288,3 +338,94 @@ class NBAVisualizer:
         else:
             plt.show()
         plt.close()
+    
+    def plot_interactive_bubble(self, df, x_column, y_column, size_column, 
+                                label_column, title=None, xlabel=None, ylabel=None,
+                                save_path=None, color_column=None):
+        """
+        Create an interactive bubble plot using Plotly
+        
+        Args:
+            df (pd.DataFrame): Input dataframe
+            x_column (str): Column for x-axis (e.g., minutes played)
+            y_column (str): Column for y-axis (e.g., points)
+            size_column (str): Column for bubble size (e.g., player rating)
+            label_column (str): Column for labels (e.g., player names)
+            title (str): Chart title
+            xlabel (str): X-axis label
+            ylabel (str): Y-axis label
+            save_path (str): Path to save HTML file
+            color_column (str): Optional column for color coding
+        """
+        if not PLOTLY_AVAILABLE:
+            print("Warning: Plotly not installed. Install with: pip install plotly")
+            print("Falling back to static scatter plot...")
+            self.plot_scatter(df, x_column, y_column, title, xlabel, ylabel, 
+                            save_path=save_path.replace('.html', '.png') if save_path else None)
+            return
+        
+        # Prepare hover data
+        hover_data = {
+            label_column: True,
+            x_column: ':.1f',
+            y_column: ':.1f',
+            size_column: ':.1f'
+        }
+        
+        # Add color column to hover if specified
+        if color_column and color_column in df.columns:
+            hover_data[color_column] = ':.1f'
+        
+        # Create the bubble chart
+        fig = px.scatter(
+            df,
+            x=x_column,
+            y=y_column,
+            size=size_column,
+            color=color_column if color_column else size_column,
+            hover_name=label_column,
+            hover_data=hover_data,
+            title=title or f'{y_column} vs {x_column}',
+            labels={
+                x_column: xlabel or x_column,
+                y_column: ylabel or y_column,
+                size_column: size_column.replace('_', ' ').title()
+            },
+            color_continuous_scale='Viridis',
+            size_max=40
+        )
+        
+        # Update layout for better appearance
+        fig.update_layout(
+            font=dict(size=12),
+            title_font=dict(size=16, family='Arial Black'),
+            hovermode='closest',
+            plot_bgcolor='rgba(240,240,240,0.9)',
+            xaxis=dict(
+                showgrid=True,
+                gridcolor='white',
+                title_font=dict(size=14)
+            ),
+            yaxis=dict(
+                showgrid=True,
+                gridcolor='white',
+                title_font=dict(size=14)
+            ),
+            height=700
+        )
+        
+        # Add hover template customization
+        fig.update_traces(
+            hovertemplate='<b>%{hovertext}</b><br>' +
+                         f'{xlabel or x_column}: %{{x:.1f}}<br>' +
+                         f'{ylabel or y_column}: %{{y:.1f}}<br>' +
+                         f'{size_column.replace("_", " ").title()}: %{{marker.size:.1f}}<br>' +
+                         '<extra></extra>'
+        )
+        
+        # Save or show
+        if save_path:
+            fig.write_html(save_path)
+        else:
+            fig.show()
+
