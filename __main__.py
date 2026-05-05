@@ -35,8 +35,8 @@ TOP_N = 10                                 # Number of leaders to show
 LEADERS_SEASON = '2023-24'                 # Single season for league leaders
 
 # League Overview Settings (for 'league_overview' analysis)
-OVERVIEW_SEASONS_START = 2024              # Start year for league overview (e.g., 2023 for 2023-24)
-OVERVIEW_SEASONS_END = 2026                # End year (e.g., 2023 for single season, 2024 for 2023-24 and 2024-25)
+OVERVIEW_SEASONS_START = 2005              # Start year for league overview (e.g., 2023 for 2023-24)
+OVERVIEW_SEASONS_END = 2008                # End year (e.g., 2023 for single season, 2024 for 2023-24 and 2024-25)
 OVERVIEW_STATS = ['PTS', 'AST', 'REB', 'FG3_PCT']     # Y-axis stats (list: PTS, AST, REB, etc.)
 MIN_GAMES_PLAYED = 20                      # Minimum games played to include player
 OVERVIEW_COLOR_MODE = 'team'               # 'team' for team colors, 'rating' for rating-based gradient
@@ -48,7 +48,7 @@ COMPARISON_STATS = ['PTS', 'AST', 'REB', 'STL', 'BLK']  # Stats for comparison
 # Visualization Settings
 SHOW_PLOTS = True                          # Display plots in window (also auto-opens HTML files)
 SAVE_PLOTS = True                          # Save plots to files
-OUTPUT_FOLDER = 'outputs'                  # Folder to save outputs
+OUTPUT_FOLDER = 'outputs\\nba_stats'                  # Folder to save outputs
 
 # Advanced Options
 CALCULATE_ROLLING_AVG = True               # Calculate rolling averages

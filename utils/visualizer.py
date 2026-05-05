@@ -823,6 +823,62 @@ class NBAVisualizer:
                 }]
             ))
         
+        # Player search dropdown - store player data for JavaScript
+        player_buttons = []
+        player_data = {}  # Dictionary to store player highlighting data
+        if label_column in df.columns:
+            players = sorted(df[label_column].unique())
+            
+            # All Players button - restore original colors
+            player_buttons.append(dict(
+                label="All Players",
+                method="restyle",
+                args=[{
+                    'marker.color': [marker_colors] * len(valid_stats),
+                    'marker.line.width': [0] * len(df),
+                    'marker.line.color': ['white'] * len(df)
+                }]
+            ))
+            
+            # Individual player buttons
+            for player in players:
+                # Create color list: original color for selected player, gray for others
+                player_marker_colors = []
+                border_widths = []
+                border_colors = []
+                
+                for i in range(len(df)):
+                    if df[label_column].iloc[i] == player:
+                        # Keep original color and add prominent border
+                        if color_mode == 'team':
+                            player_marker_colors.append(marker_colors[i])
+                        else:
+                            player_marker_colors.append(marker_colors.iloc[i] if hasattr(marker_colors, 'iloc') else marker_colors[i])
+                        border_widths.append(4)  # Thicker border for selected player
+                        border_colors.append('yellow')  # Yellow border for visibility
+                    else:
+                        # Gray out non-selected players
+                        player_marker_colors.append('rgba(200, 200, 200, 0.25)')
+                        border_widths.append(0)
+                        border_colors.append('white')
+                
+                player_buttons.append(dict(
+                    label=player,
+                    method="restyle",
+                    args=[{
+                        'marker.color': [player_marker_colors] * len(valid_stats),
+                        'marker.line.width': border_widths,
+                        'marker.line.color': border_colors
+                    }]
+                ))
+                
+                # Store player data for custom dropdown
+                player_data[player] = {
+                    'colors': player_marker_colors,
+                    'widths': border_widths,
+                    'borderColors': border_colors
+                }
+        
         # Update layout
         total_height = 400 * len(valid_stats)
         
@@ -880,6 +936,9 @@ class NBAVisualizer:
                     font=dict(size=11)
                 )
             )
+        
+        # Don't add the player dropdown to updatemenus - we'll use custom searchable dropdown instead
+        # (The player_buttons and player_data are still needed for the custom dropdown)
         
         fig.update_layout(
             title=dict(
@@ -942,7 +1001,13 @@ class NBAVisualizer:
         
         # Save or show
         if save_path:
+            # First, save the base Plotly HTML
             fig.write_html(save_path)
+            
+            # If we have player data, inject custom searchable dropdown
+            if player_data:
+                self._inject_searchable_player_dropdown(save_path, player_data, 
+                                                        marker_colors, len(valid_stats))
         else:
             fig.show()
     
@@ -969,4 +1034,275 @@ class NBAVisualizer:
         
         hover_template += '<extra></extra>'
         return hover_template
-
+    
+    def _inject_searchable_player_dropdown(self, html_path, player_data, 
+                                           original_colors, num_stats):
+        """
+        Inject custom searchable player dropdown into the HTML file
+        
+        Args:
+            html_path (str): Path to the HTML file
+            player_data (dict): Dictionary mapping player names to their styling data
+            original_colors (list): Original marker colors for "All Players" reset
+            num_stats (int): Number of stat subplots
+        """
+        try:
+            # Read the HTML file
+            with open(html_path, 'r', encoding='utf-8') as f:
+                html_content = f.read()
+            
+            # Prepare player data as JavaScript
+            import json
+            players_list = sorted(player_data.keys())
+            
+            # Prepare data for JavaScript
+            js_player_data = {}
+            for player, data in player_data.items():
+                js_player_data[player] = {
+                    'colors': data['colors'],
+                    'widths': data['widths'],
+                    'borderColors': data['borderColors']
+                }
+            
+            # Convert original_colors to list if needed
+            if hasattr(original_colors, 'tolist'):
+                original_colors_list = original_colors.tolist()
+            elif hasattr(original_colors, '__iter__') and not isinstance(original_colors, str):
+                original_colors_list = list(original_colors)
+            else:
+                original_colors_list = [original_colors]
+            
+            # Create custom dropdown HTML and JavaScript
+            custom_dropdown_html = f'''
+    <!-- Custom Searchable Player Dropdown -->
+    <style>
+        #playerSearchContainer {{
+            position: absolute;
+            top: 105px;
+            left: 52%;
+            z-index: 1000;
+            font-family: Arial, sans-serif;
+        }}
+        
+        #playerSearchLabel {{
+            font-size: 12px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 2px;
+            display: block;
+        }}
+        
+        #playerSearchBox {{
+            width: 200px;
+            padding: 6px 10px;
+            font-size: 11px;
+            border: 2px solid #333;
+            border-radius: 4px;
+            background-color: white;
+            box-sizing: border-box;
+        }}
+        
+        #playerSearchBox:focus {{
+            outline: none;
+            border-color: #1f77b4;
+            box-shadow: 0 0 5px rgba(31, 119, 180, 0.3);
+        }}
+        
+        #playerDropdownList {{
+            position: absolute;
+            width: 200px;
+            max-height: 300px;
+            overflow-y: auto;
+            background-color: white;
+            border: 2px solid #333;
+            border-top: none;
+            border-radius: 0 0 4px 4px;
+            display: none;
+            z-index: 1001;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }}
+        
+        .player-option {{
+            padding: 8px 10px;
+            cursor: pointer;
+            font-size: 11px;
+            border-bottom: 1px solid #f0f0f0;
+        }}
+        
+        .player-option:hover {{
+            background-color: #f0f0f0;
+        }}
+        
+        .player-option.selected {{
+            background-color: #1f77b4;
+            color: white;
+        }}
+        
+        #playerDropdownList::-webkit-scrollbar {{
+            width: 8px;
+        }}
+        
+        #playerDropdownList::-webkit-scrollbar-track {{
+            background: #f1f1f1;
+        }}
+        
+        #playerDropdownList::-webkit-scrollbar-thumb {{
+            background: #888;
+            border-radius: 4px;
+        }}
+        
+        #playerDropdownList::-webkit-scrollbar-thumb:hover {{
+            background: #555;
+        }}
+    </style>
+    
+    <div id="playerSearchContainer">
+        <label id="playerSearchLabel" for="playerSearchBox">Search Player:</label>
+        <input type="text" id="playerSearchBox" placeholder="Type to search players..." autocomplete="off">
+        <div id="playerDropdownList"></div>
+    </div>
+    
+    <script>
+        // Player data
+        const playerData = {json.dumps(js_player_data)};
+        const originalColors = {json.dumps(original_colors_list)};
+        const numStats = {num_stats};
+        const allPlayers = {json.dumps(players_list)};
+        
+        let selectedPlayer = null;
+        
+        // Get DOM elements
+        const searchBox = document.getElementById('playerSearchBox');
+        const dropdownList = document.getElementById('playerDropdownList');
+        
+        // Filter and display players based on search input
+        function filterPlayers(searchTerm) {{
+            const filtered = allPlayers.filter(player => 
+                player.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+            
+            dropdownList.innerHTML = '';
+            
+            // Add "All Players" option
+            const allOption = document.createElement('div');
+            allOption.className = 'player-option' + (selectedPlayer === null ? ' selected' : '');
+            allOption.textContent = 'All Players';
+            allOption.onclick = () => selectPlayer(null);
+            dropdownList.appendChild(allOption);
+            
+            // Add filtered players
+            filtered.forEach(player => {{
+                const option = document.createElement('div');
+                option.className = 'player-option' + (selectedPlayer === player ? ' selected' : '');
+                option.textContent = player;
+                option.onclick = () => selectPlayer(player);
+                dropdownList.appendChild(option);
+            }});
+            
+            // Show dropdown if there are results and search box is focused
+            if (filtered.length > 0 || searchTerm === '') {{
+                dropdownList.style.display = 'block';
+            }} else {{
+                dropdownList.style.display = 'none';
+            }}
+        }}
+        
+        // Select a player and update the plot
+        function selectPlayer(player) {{
+            selectedPlayer = player;
+            searchBox.value = player || '';
+            dropdownList.style.display = 'none';
+            
+            // Get Plotly div
+            const plotlyDiv = document.querySelector('.plotly-graph-div');
+            
+            if (!player) {{
+                // Reset to all players
+                const update = {{
+                    'marker.color': Array(numStats).fill(originalColors),
+                    'marker.line.width': Array(plotlyDiv.data[0].x.length).fill(0),
+                    'marker.line.color': Array(plotlyDiv.data[0].x.length).fill('white')
+                }};
+                Plotly.restyle(plotlyDiv, update);
+            }} else {{
+                // Highlight selected player
+                const data = playerData[player];
+                const update = {{
+                    'marker.color': Array(numStats).fill(data.colors),
+                    'marker.line.width': data.widths,
+                    'marker.line.color': data.borderColors
+                }};
+                Plotly.restyle(plotlyDiv, update);
+            }}
+        }}
+        
+        // Event listeners
+        searchBox.addEventListener('input', (e) => {{
+            filterPlayers(e.target.value);
+        }});
+        
+        searchBox.addEventListener('focus', () => {{
+            filterPlayers(searchBox.value);
+        }});
+        
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {{
+            if (!searchBox.contains(e.target) && !dropdownList.contains(e.target)) {{
+                dropdownList.style.display = 'none';
+            }}
+        }});
+        
+        // Handle keyboard navigation
+        searchBox.addEventListener('keydown', (e) => {{
+            const options = dropdownList.querySelectorAll('.player-option');
+            const currentIndex = Array.from(options).findIndex(opt => opt.classList.contains('selected'));
+            
+            if (e.key === 'ArrowDown') {{
+                e.preventDefault();
+                if (currentIndex < options.length - 1) {{
+                    options[currentIndex]?.classList.remove('selected');
+                    options[currentIndex + 1]?.classList.add('selected');
+                    options[currentIndex + 1]?.scrollIntoView({{ block: 'nearest' }});
+                }}
+            }} else if (e.key === 'ArrowUp') {{
+                e.preventDefault();
+                if (currentIndex > 0) {{
+                    options[currentIndex]?.classList.remove('selected');
+                    options[currentIndex - 1]?.classList.add('selected');
+                    options[currentIndex - 1]?.scrollIntoView({{ block: 'nearest' }});
+                }}
+            }} else if (e.key === 'Enter') {{
+                e.preventDefault();
+                const selectedOption = options[currentIndex];
+                if (selectedOption) {{
+                    selectedOption.click();
+                }}
+            }} else if (e.key === 'Escape') {{
+                dropdownList.style.display = 'none';
+            }}
+        }});
+        
+        // Initialize with all players
+        filterPlayers('');
+        dropdownList.style.display = 'none';
+    </script>
+'''
+            
+            # Find the closing body tag and insert before it
+            body_close_index = html_content.rfind('</body>')
+            if body_close_index != -1:
+                html_content = (
+                    html_content[:body_close_index] + 
+                    custom_dropdown_html + 
+                    html_content[body_close_index:]
+                )
+            else:
+                # If no body tag, append to end
+                html_content += custom_dropdown_html
+            
+            # Write back to file
+            with open(html_path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+                
+        except Exception as e:
+            print(f"Warning: Could not inject searchable dropdown: {e}")
