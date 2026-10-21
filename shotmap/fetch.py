@@ -81,17 +81,17 @@ for season in os.listdir("raw"):
 scanned = set(load_json("raw/scanned_days.json", []))
 today = date.today()
 todo = []
-d = FIRST_SEASON_START
-while d <= today and not out_of_time():
+d = today   # newest first, so recent games show up on the page first
+while d >= FIRST_SEASON_START and (time.time() - T0) / 60 < MAX_MINUTES / 2:   # keep half the time for downloads
     key = d.isoformat()
     if key in scanned or d.month in (7, 8, 9):    # off-season
-        d += timedelta(days=1)
+        d -= timedelta(days=1)
         continue
     try:
         sb = get(f"{ESPN}/scoreboard?dates={d:%Y%m%d}")
     except Exception as e:
         print("scoreboard", key, e)
-        d += timedelta(days=1)
+        d -= timedelta(days=1)
         continue
     all_done = True
     for e in sb.get("events", []):
@@ -108,7 +108,7 @@ while d <= today and not out_of_time():
                      "hs": int(c["home"]["score"] or 0), "as": int(c["away"]["score"] or 0)})
     if all_done and d < today - timedelta(days=1):
         scanned.add(key)
-    d += timedelta(days=1)
+    d -= timedelta(days=1)
 json.dump(sorted(scanned), open("raw/scanned_days.json", "w"), separators=(",", ":"))
 print(f"{len(have)} games already saved, {len(todo)} to download")
 
