@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NBA Shot Maps</title>
+<style>
+  :root { --bg:#0b0d12; --panel:#151922; --line:#3a4150; --text:#e8eaf0; --dim:#8a92a5; --made:#f5c518; --miss:#e0447a; --accent:#5aa9ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 system-ui, -apple-system, Segoe UI, sans-serif; }
+  header { padding:16px; text-align:center; }
+  h1 { margin:0; font-size:22px; letter-spacing:.5px; }
+  #score { color:var(--dim); margin-top:4px; }
+  .wrap { max-width:1100px; margin:0 auto; padding:0 16px 32px; }
+  .controls { background:var(--panel); border-radius:12px; padding:12px; display:grid; gap:10px; }
+  select { width:100%; padding:10px; background:#0f1218; color:var(--text); border:1px solid var(--line); border-radius:8px; font-size:15px; }
+  .row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .row > span { color:var(--dim); font-size:13px; min-width:64px; }
+  button.chip { background:#0f1218; color:var(--text); border:1px solid var(--line); border-radius:999px; padding:6px 12px; font-size:13px; cursor:pointer; }
+  button.chip.on { background:var(--accent); border-color:var(--accent); color:#04101f; font-weight:600; }
+  details summary { cursor:pointer; color:var(--dim); font-size:13px; }
+  .players { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:4px 10px; margin-top:8px; }
+  .players label { font-size:13px; display:flex; gap:6px; align-items:center; }
+  .players h4 { grid-column:1/-1; margin:8px 0 0; font-size:13px; color:var(--accent); }
+  .courts { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-top:16px; }
+  .court { background:var(--panel); border-radius:12px; padding:10px; }
+  .court h3 { margin:2px 0 0; text-align:center; font-size:17px; }
+  .court .stat { text-align:center; color:var(--dim); font-size:13px; margin-bottom:6px; }
+  .court svg { width:100%; height:auto; display:block; }
+  .legend svg { vertical-align:-1px; }
+  .legend { display:flex; gap:16px; justify-content:center; color:var(--dim); font-size:13px; margin-top:12px; }
+  #tip { position:fixed; pointer-events:none; background:#000d; padding:6px 8px; border-radius:6px; font-size:12px; display:none; }
+  footer { text-align:center; color:var(--dim); font-size:12px; margin-top:24px; }
+</style>
+</head>
+<body>
+<header><h1>NBA Shot Maps · 2026–27</h1><div id="score">Loading games…</div></header>
+<div class="wrap">
+  <div class="controls">
+    <select id="game"></select>
+    <div class="row"><span>Quarter</span><div id="quarters" class="row"></div></div>
+    <div class="row"><span>Result</span><div id="results" class="row"></div></div>
+    <details open>
+      <summary>Players</summary>
+      <div class="row" style="margin-top:8px"><button class="chip" id="all">Select all</button><button class="chip" id="none">Clear</button></div>
+      <div class="players" id="players"></div>
+    </details>
+  </div>
+  <div class="courts" id="courts"></div>
+  <div class="legend"><span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="var(--made)"/></svg> Made</span><span><svg width="12" height="12"><path d="M2 2L10 10M10 2L2 10" stroke="var(--miss)" stroke-width="2"/></svg> Missed</span></div>
+  <footer>Data: NBA.com play-by-play, updated twice daily.</footer>
+</div>
+<div id="tip"></div>
+<script>
+const $ = id => document.getElementById(id);
+let games = [], shots = [], state = { q: "all", r: "all", players: new Set() };
+
+// Half-court in NBA "legacy" coords: basket at (0,0), units = 1/10 ft. Drawn with basket at the bottom.
+const VB = "-252 -2 504 474", Y = y => 422 - y;
+function courtLines() {
+  const s = 'stroke="var(--line)" stroke-width="2" fill="none"';
+  return `
+  <rect x="-250" y="${Y(422)}" width="500" height="470" ${s}/>
+  <rect x="-80" y="${Y(142.5)}" width="160" height="190" ${s}/>
+  <rect x="-60" y="${Y(142.5)}" width="120" height="190" ${s}/>
+  <circle cx="0" cy="${Y(142.5)}" r="60" ${s}/>
+  <path d="M-40 ${Y(0)} A40 40 0 0 1 40 ${Y(0)}" ${s}/>
+  <line x1="-30" y1="${Y(-7.5)}" x2="30" y2="${Y(-7.5)}" ${s}/>
+  <circle cx="0" cy="${Y(0)}" r="7.5" stroke="#ff8a3d" stroke-width="2" fill="none"/>
+  <line x1="-220" y1="${Y(-47.5)}" x2="-220" y2="${Y(92.5)}" ${s}/>
+  <line x1="220" y1="${Y(-47.5)}" x2="220" y2="${Y(92.5)}" ${s}/>
+  <path d="M-220 ${Y(92.5)} A237.5 237.5 0 0 1 220 ${Y(92.5)}" ${s}/>
+  <path d="M-60 ${Y(422)} A60 60 0 0 0 60 ${Y(422)}" ${s}/>`;
+}
+
+async function init() {
+  games = await (await fetch("data/games.json", {cache:"no-store"})).json();
+  if (!games.length) { $("score").textContent = "No games yet — run the Update shot data action."; return; }
+  $("game").innerHTML = games.map(g => {
+    const d = new Date(g.date).toLocaleDateString(undefined, {month:"short", day:"numeric"});
+    return `<option value="${g.id}">${d} · ${g.away} ${g.as} @ ${g.home} ${g.hs}</option>`;
+  }).join("");
+  const want = new URLSearchParams(location.search).get("game");
+  if (want && games.some(g => g.id === want)) $("game").value = want;
+  $("game").onchange = loadGame;
+  chips("quarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], "q");
+  chips("results", [["all","All"],["made","Made"],["miss","Missed"]], "r");
+  $("all").onclick = () => { shots.forEach(s => state.players.add(s.p)); renderPlayers(); draw(); };
+  $("none").onclick = () => { state.players.clear(); renderPlayers(); draw(); };
+  loadGame();
+}
+
+function chips(id, opts, key) {
+  $(id).innerHTML = opts.map(([v,l]) => `<button class="chip ${state[key]===v?"on":""}" data-v="${v}">${l}</button>`).join("");
+  $(id).onclick = e => { const v = e.target.dataset.v; if (!v) return; state[key] = v; chips(id, opts, key); draw(); };
+}
+
+async function loadGame() {
+  const g = games.find(x => x.id === $("game").value);
+  history.replaceState(null, "", "?game=" + g.id);
+  $("score").textContent = `${g.away} ${g.as} – ${g.hs} ${g.home} · ${new Date(g.date).toLocaleString()}`;
+  shots = await (await fetch(`data/shots/${g.id}.json`)).json();
+  state.players = new Set(shots.map(s => s.p));
+  renderPlayers(); draw();
+}
+
+function teamsOf() { const g = games.find(x => x.id === $("game").value); return [g.away, g.home]; }
+
+function renderPlayers() {
+  $("players").innerHTML = teamsOf().map(t => {
+    const ps = [...new Set(shots.filter(s => s.t === t).map(s => s.p))].sort();
+    return `<h4>${t}</h4>` + ps.map(p => {
+      const n = shots.filter(s => s.p === p), m = n.filter(s => s.m).length;
+      return `<label><input type="checkbox" value="${p}" ${state.players.has(p)?"checked":""}> ${p} <span style="color:var(--dim)">${m}/${n.length}</span></label>`;
+    }).join("");
+  }).join("");
+  $("players").onchange = e => { e.target.checked ? state.players.add(e.target.value) : state.players.delete(e.target.value); draw(); };
+}
+
+function draw() {
+  const f = shots.filter(s => state.players.has(s.p)
+    && (state.q === "all" || (state.q === "ot" ? s.q > 4 : s.q == state.q))
+    && (state.r === "all" || (state.r === "made") === !!s.m));
+  $("courts").innerHTML = teamsOf().map(t => {
+    const ts = f.filter(s => s.t === t), m = ts.filter(s => s.m).length;
+    const t3 = ts.filter(s => s.v === 3), m3 = t3.filter(s => s.m).length;
+    const pct = (a,b) => b ? Math.round(100*a/b) + "%" : "–";
+    const marks = ts.map((s,i) => {
+      const x = s.x, y = Y(s.y), info = `data-i="${shots.indexOf(s)}"`;
+      return s.m ? `<circle cx="${x}" cy="${y}" r="7" fill="var(--made)" fill-opacity=".9" ${info}/>`
+                 : `<path d="M${x-5} ${y-5}L${x+5} ${y+5}M${x+5} ${y-5}L${x-5} ${y+5}" stroke="var(--miss)" stroke-width="3" ${info}/><circle cx="${x}" cy="${y}" r="7" fill="transparent" ${info}/>`;
+    }).join("");
+    return `<div class="court"><h3>${t}</h3><div class="stat">FG ${m}/${ts.length} (${pct(m,ts.length)}) · 3PT ${m3}/${t3.length} (${pct(m3,t3.length)})</div>
+      <svg viewBox="${VB}">${courtLines()}${marks}</svg></div>`;
+  }).join("");
+}
+
+document.addEventListener("pointermove", e => {
+  const i = e.target.dataset && e.target.dataset.i, tip = $("tip");
+  if (i === undefined) { tip.style.display = "none"; return; }
+  const s = shots[i];
+  tip.innerHTML = `<b>${s.p}</b> · Q${s.q > 4 ? "OT" + (s.q-4) : s.q} ${s.c}<br>${s.v}PT ${s.d || ""} · ${s.m ? "Made" : "Missed"} · ${Math.round(Math.hypot(s.x, s.y)/10)} ft`;
+  tip.style.display = "block"; tip.style.left = (e.clientX + 12) + "px"; tip.style.top = (e.clientY + 12) + "px";
+});
+init();
+</script>
+</body>
+</html>

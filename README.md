@@ -2,6 +2,8 @@
 
 A comprehensive Python application for importing, analyzing, and visualizing NBA statistics with easy-to-configure variables.
 
+**🏀 [Shot Map web page](https://basgoncalves.github.io/nba/shotmap/)** — interactive shot charts for every game of the 2026–27 season, filterable by player and quarter (source in [`shotmap/`](shotmap/)).
+
 ## Features
 
 - **Player Analysis**: Fetch and visualize individual player statistics across single or multiple seasons
