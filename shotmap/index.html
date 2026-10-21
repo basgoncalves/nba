@@ -31,6 +31,17 @@
   .players h4 { grid-column:1/-1; margin:8px 0 0; font-size:13px; color:var(--accent); }
   .hint { color:var(--dim); font-size:13px; }
   .courts { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-top:16px; }
+  .mid { background:var(--panel); border-radius:12px; padding:12px 14px; display:grid; gap:8px; order:-1; grid-column:1/-1; }
+  .mid .score { display:flex; justify-content:center; align-items:baseline; gap:14px; font-size:28px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .mid .score small { font-size:15px; color:var(--dim); font-weight:600; }
+  .mid .clock { text-align:center; color:var(--dim); font-size:14px; font-variant-numeric:tabular-nums; }
+  .mid .bar { display:flex; gap:10px; align-items:center; }
+  .mid input[type=range] { flex:1; accent-color:var(--accent); height:28px; }
+  .mid button { background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:6px 10px; font-size:14px; cursor:pointer; min-width:44px; }
+  .ticks { display:flex; justify-content:space-between; color:var(--dim); font-size:11px; padding:0 54px 0 54px; }
+  #courts { grid-template-columns:1fr 1fr; }
+  @media (max-width:640px) { #courts { grid-template-columns:1fr; } }
+  @media (max-width:640px) { .mid { order:0; position:sticky; top:0; z-index:3; box-shadow:0 6px 16px #000a; } }
   .court { background:var(--panel); border-radius:12px; padding:10px; }
   .court h3 { margin:2px 0 0; text-align:center; font-size:17px; }
   .court .stat { text-align:center; color:var(--dim); font-size:13px; margin-bottom:6px; }
@@ -74,7 +85,17 @@
         <div class="players" id="players"></div>
       </details>
     </div>
-    <div class="courts" id="courts"></div>
+    <div class="courts" id="courts">
+      <div id="ct0"></div>
+      <div class="mid" id="mid">
+        <div class="score"><small id="tA"></small><span id="sA">0</span><span style="color:var(--dim)">–</span><span id="sH">0</span><small id="tH"></small></div>
+        <div class="clock" id="clk">Final</div>
+        <div class="bar"><button id="play" aria-label="Play">▶</button><input type="range" id="time" min="0" max="2880" step="5" value="2880" aria-label="Game time"><button id="toEnd">End</button></div>
+        <div class="ticks" id="ticks"></div>
+        <div class="hint" id="scoreNote" style="text-align:center"></div>
+      </div>
+      <div id="ct1"></div>
+    </div>
   </section>
 
   <!-- ============ COMPARE VIEW ============ -->
@@ -103,7 +124,7 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let games = [], gameById = {}, players = [], playerById = {}, shots = [];
-const st = { q:"all", r:"all", sel:new Set() };
+const st = { q:"all", r:"all", sel:new Set(), t:2880, max:2880, tl:null, timer:null };
 const cs = { scope:"season", q:"all", mode:"auto", a:null, b:null, cache:{} };
 
 // ---------- court drawing (NBA legacy coords: basket at 0,0, 1 unit = 0.1 ft) ----------
@@ -199,6 +220,14 @@ async function init() {
   $("all").onclick = () => { shots.forEach(s => st.sel.add(s.pid)); renderPlayers(); drawGame(); };
   $("none").onclick = () => { st.sel.clear(); renderPlayers(); drawGame(); };
   $("cmpBtn").onclick = () => { const [a, b] = [...st.sel]; openCompare(a, b, "game", $("game").value); };
+  $("time").oninput = e => { stopPlay(); setTime(+e.target.value); };
+  $("toEnd").onclick = () => { stopPlay(); setTime(st.max); };
+  $("play").onclick = () => {
+    if (st.timer) return stopPlay();
+    if (st.t >= st.max) setTime(0);
+    $("play").textContent = "❚❚";
+    st.timer = setInterval(() => { if (st.t >= st.max) return stopPlay(); setTime(st.t + 15); }, 60);
+  };
   $("tabGame").onclick = () => show("game");
   $("tabCmp").onclick = () => { show("cmp"); if (!cs.a && !cs.b) defaultCompare(); };
   $("cSeason").onchange = () => { syncScope(); drawCmp(); };
@@ -239,6 +268,44 @@ const qOk = (q, sel) => sel === "all" || (sel === "ot" ? q > 4 : q == sel);
 const fmtDate = d => new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 const gameLabel = g => `${fmtDate(g.date)} · ${g.away} ${g.as} @ ${g.home} ${g.hs}${g.type && g.type !== "Regular" ? " · " + g.type : ""}`;
 
+// ---------- game clock ----------
+function secs(q, c) {
+  let left = 0; c = String(c || "");
+  if (c.includes(":")) { const [m, x] = c.split(":"); left = +m * 60 + +x; } else left = +c || 0;
+  const start = q <= 4 ? (q - 1) * 720 : 2880 + (q - 5) * 300;
+  return Math.round(start + (q <= 4 ? 720 : 300) - left);
+}
+function clockText(t) {
+  if (t >= st.max) return "Final";
+  if (t <= 0) return "Tip-off";
+  let q, left;
+  if (t <= 2880) { q = Math.min(4, Math.floor((t - 1) / 720) + 1); left = q * 720 - t; }
+  else { q = 5 + Math.floor((t - 2881) / 300); left = 2880 + (q - 4) * 300 - t; }
+  const lbl = q <= 4 ? "Q" + q : (q === 5 ? "OT" : "OT" + (q - 4));
+  return `${lbl} · ${Math.floor(left / 60)}:${String(Math.round(left % 60)).padStart(2, "0")} left`;
+}
+function scoreAt(t) {
+  const [away, home] = teamsOf();
+  if (st.tl && st.tl.length) {
+    let a = 0, h = 0;
+    for (const [e, x, y] of st.tl) if (e <= t) { a = Math.max(a, x); h = Math.max(h, y); }
+    return [a, h];
+  }
+  const pts = team => shots.filter(s => s.t === team && s.m && s.e <= t).reduce((n, s) => n + s.v, 0);
+  return [pts(away), pts(home)];
+}
+function initClock() {
+  const maxQ = Math.max(4, ...shots.map(s => s.q));
+  st.max = 2880 + (maxQ - 4) * 300; st.t = st.max;
+  const r = $("time"); r.max = st.max; r.value = st.max;
+  const marks = ["Q1", "Q2", "Q3", "Q4"].concat(maxQ > 4 ? ["OT"] : []);
+  $("ticks").innerHTML = marks.map(m => `<span>${m}</span>`).join("") + "<span>End</span>";
+  $("scoreNote").textContent = st.tl ? "" : "Score from field goals only (free throws not yet available for this game)";
+  stopPlay();
+}
+function stopPlay() { clearInterval(st.timer); st.timer = null; $("play").textContent = "▶"; }
+function setTime(t) { st.t = Math.max(0, Math.min(st.max, t)); $("time").value = st.t; drawGame(); }
+
 // ---------- game view ----------
 function fillGames() {
   const s = $("gSeason").value;
@@ -247,7 +314,9 @@ function fillGames() {
 async function loadGame() {
   const g = gameById[$("game").value]; if (!g) return;
   const f = await getJSON(`data/shots/${g.id}.json`);
-  shots = (Array.isArray(f) ? f : f.shots).map(s => ({ ...s, pid: s.pid || s.p }));
+  shots = (Array.isArray(f) ? f : f.shots).map(s => ({ ...s, pid: s.pid || s.p, e: secs(s.q, s.c) }));
+  try { st.tl = await getJSON(`data/score/${g.id}.json`); } catch { st.tl = null; }
+  initClock();
   st.sel = new Set(shots.map(s => s.pid));
   renderPlayers(); drawGame(); updateUrlGame();
 }
@@ -266,13 +335,17 @@ function drawGame() {
   const ok = st.sel.size === 2;
   $("cmpBtn").disabled = !ok;
   $("cmpHint").textContent = ok ? "Compare these 2 players in this game, season or career" : `Tick exactly 2 players to compare (${st.sel.size} ticked)`;
-  const f = shots.filter(s => st.sel.has(s.pid) && qOk(s.q, st.q) && (st.r === "all" || (st.r === "made") === !!s.m));
+  const f = shots.filter(s => s.e <= st.t && st.sel.has(s.pid) && qOk(s.q, st.q) && (st.r === "all" || (st.r === "made") === !!s.m));
   window._g = {};
-  $("courts").innerHTML = teamsOf().map(t => {
+  const [away, home] = teamsOf(), [sa, sh] = scoreAt(st.t);
+  $("tA").textContent = away; $("tH").textContent = home; $("sA").textContent = sa; $("sH").textContent = sh;
+  $("sA").style.color = sa > sh ? "var(--text)" : "var(--dim)"; $("sH").style.color = sh > sa ? "var(--text)" : "var(--dim)";
+  $("clk").textContent = clockText(st.t);
+  teamsOf().map(t => {
     const ts = f.filter(s => s.t === t), S = summary(ts); window._g[t] = ts.filter(inCourt);
     return `<div class="court"><h3>${t}</h3><div class="stat">FG ${S.fgm}/${S.fga} (${pct(S.fgm, S.fga)}) · 3PT ${S.m3}/${S.a3} (${pct(S.m3, S.a3)})</div>
       <svg viewBox="${VB}">${courtLines()}${dotMarks(ts, "g:" + t)}</svg></div>`;
-  }).join("");
+  }).forEach((html, i) => $("ct" + i).outerHTML = html.replace('<div class="court"', `<div class="court" id="ct${i}"`));
   legend();
 }
 

@@ -92,6 +92,23 @@ print(f"{len(games)} finished games since {FIRST_SEASON_START}")
 
 
 # ---------------------------------------------------------------- shots per game
+def elapsed(q, clock):
+    """Seconds since tip-off. 12-min quarters, 5-min overtimes."""
+    try:
+        if ":" in clock:
+            m, sec = clock.split(":")
+            left = int(m) * 60 + float(sec)
+        else:
+            left = float(clock or 0)
+    except ValueError:
+        left = 0
+    start = (q - 1) * 720 if q <= 4 else 2880 + (q - 5) * 300
+    return round(start + (720 if q <= 4 else 300) - left)
+
+
+TIMELINE = []
+
+
 def espn_shots(eid):
     s = get(f"{ESPN}/summary?event={eid}")
     team = {t["team"]["id"]: t["team"]["abbreviation"] for t in s["boxscore"]["teams"]}
@@ -102,6 +119,16 @@ def espn_shots(eid):
                 ath = a["athlete"]
                 first, _, last = ath["displayName"].partition(" ")
                 names[ath["id"]] = (f"{first[:1]}. {last}" if last else first, ath["displayName"])
+    global TIMELINE
+    TIMELINE, last = [[0, 0, 0]], (0, 0)
+    for p in s.get("plays", []):
+        try:
+            sc = (int(p.get("awayScore", 0)), int(p.get("homeScore", 0)))
+        except (TypeError, ValueError):
+            continue
+        if sc != last and sc >= last:
+            TIMELINE.append([elapsed(p["period"]["number"], p.get("clock", {}).get("displayValue", "")), *sc])
+            last = sc
     raw = []
     for p in s.get("plays", []):
         txt = p.get("text", "").lower()
@@ -134,7 +161,9 @@ def done(g):
     return isinstance(f, dict) and f.get("v") == VERSION
 
 
-todo = [g for g in sorted(games.values(), key=lambda g: g["date"], reverse=True) if not done(g)]
+os.makedirs("data/score", exist_ok=True)
+todo = [g for g in sorted(games.values(), key=lambda g: g["date"], reverse=True)
+        if not done(g) or not os.path.exists(f"data/score/{g['id']}.json")]
 print(f"{len(todo)} games to download")
 for i, g in enumerate(todo):
     if (time.time() - T0) / 60 > MAX_MINUTES:
@@ -146,6 +175,7 @@ for i, g in enumerate(todo):
         print("skip", g["id"], e)
         continue
     json.dump({"v": VERSION, "shots": shots}, open(f"data/shots/{g['id']}.json", "w"), separators=(",", ":"))
+    json.dump(TIMELINE, open(f"data/score/{g['id']}.json", "w"), separators=(",", ":"))
     if i % 50 == 0:
         print(f"[{i + 1}/{len(todo)}] {g['date'][:10]} {g['away']}@{g['home']}: {len(shots)} shots")
     time.sleep(0.15)
