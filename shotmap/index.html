@@ -178,10 +178,12 @@ async function init() {
   try { games = await getJSON("data/games.json"); } catch { games = []; }
   try { players = await getJSON("data/players.json"); } catch { players = []; }
   if (!games.length) { $("sub").textContent = "No games yet — run the “Update shot map data” action."; return; }
-  games.forEach(g => gameById[g.id] = g);
+  const seasonOf = d => { const t = new Date(d), y = t.getUTCFullYear() + (t.getUTCMonth() >= 8 ? 1 : 0); return `${y - 1}-${String(y).slice(2)}`; };
+  games.forEach(g => { g.season = g.season || seasonOf(g.date); gameById[g.id] = g; });
+  if (!players.length) $("tabCmp").disabled = true, $("tabCmp").title = "Player data is still being built";
   players.forEach(p => playerById[p.id] = p);
   const seasons = [...new Set(games.map(g => g.season))].sort().reverse();
-  $("sub").textContent = `${games.length.toLocaleString()} games · ${players.length.toLocaleString()} players · ${seasons.at(-1)} to ${seasons[0]}`;
+  $("sub").textContent = players.length ? `${games.length.toLocaleString()} games · ${players.length.toLocaleString()} players · ${seasons.at(-1)} to ${seasons[0]}` : `${games.length} games · full history is still downloading, check back soon`;
   $("gSeason").innerHTML = seasons.map(s => `<option>${s}</option>`).join("");
   $("cSeason").innerHTML = seasons.map(s => `<option>${s}</option>`).join("");
   $("plist").innerHTML = players.map(p => `<option value="${esc(p.n)} (${p.t})">`).join("");
@@ -245,7 +247,7 @@ function fillGames() {
 async function loadGame() {
   const g = gameById[$("game").value]; if (!g) return;
   const f = await getJSON(`data/shots/${g.id}.json`);
-  shots = Array.isArray(f) ? f : f.shots;
+  shots = (Array.isArray(f) ? f : f.shots).map(s => ({ ...s, pid: s.pid || s.p }));
   st.sel = new Set(shots.map(s => s.pid));
   renderPlayers(); drawGame(); updateUrlGame();
 }
