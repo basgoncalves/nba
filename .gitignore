@@ -40,3 +40,5 @@ Thumbs.db
 outputs/*.png
 outputs/*.csv
 !outputs/.gitkeep
+# processed tracking games stay local until we decide what to publish
+shotmap/tracking/00*/
