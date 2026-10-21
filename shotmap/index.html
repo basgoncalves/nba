@@ -5,62 +5,112 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NBA Shot Maps</title>
 <style>
-  :root { --bg:#0b0d12; --panel:#151922; --line:#3a4150; --text:#e8eaf0; --dim:#8a92a5; --made:#f5c518; --miss:#e0447a; --accent:#5aa9ff; }
+  :root { --bg:#0b0d12; --panel:#151922; --panel2:#0f1218; --line:#3a4150; --text:#e8eaf0; --dim:#8a92a5;
+          --made:#f5c518; --miss:#e0447a; --accent:#5aa9ff; --a:#5aa9ff; --b:#ff8a3d; }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 system-ui, -apple-system, Segoe UI, sans-serif; }
-  header { padding:16px; text-align:center; }
+  header { padding:16px 16px 8px; text-align:center; }
   h1 { margin:0; font-size:22px; letter-spacing:.5px; }
-  #score { color:var(--dim); margin-top:4px; }
+  .sub { color:var(--dim); margin-top:4px; font-size:14px; }
   .wrap { max-width:1100px; margin:0 auto; padding:0 16px 32px; }
+  .tabs { display:flex; gap:6px; justify-content:center; margin:8px 0 14px; }
+  .tabs button { background:var(--panel); color:var(--dim); border:1px solid var(--line); padding:8px 18px; border-radius:999px; font-size:14px; cursor:pointer; }
+  .tabs button.on { background:var(--text); color:var(--bg); border-color:var(--text); font-weight:600; }
   .controls { background:var(--panel); border-radius:12px; padding:12px; display:grid; gap:10px; }
-  select { width:100%; padding:10px; background:#0f1218; color:var(--text); border:1px solid var(--line); border-radius:8px; font-size:15px; }
+  select, input[type=search] { width:100%; padding:10px; background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:8px; font-size:15px; }
+  .two { display:grid; grid-template-columns:150px 1fr; gap:8px; }
   .row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
-  .row > span { color:var(--dim); font-size:13px; min-width:64px; }
-  button.chip { background:#0f1218; color:var(--text); border:1px solid var(--line); border-radius:999px; padding:6px 12px; font-size:13px; cursor:pointer; }
+  .row > .lbl { color:var(--dim); font-size:13px; min-width:64px; }
+  button.chip { background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:999px; padding:6px 12px; font-size:13px; cursor:pointer; }
   button.chip.on { background:var(--accent); border-color:var(--accent); color:#04101f; font-weight:600; }
+  button.go { background:var(--accent); color:#04101f; border:0; border-radius:8px; padding:9px 16px; font-weight:600; font-size:14px; cursor:pointer; }
+  button.go:disabled { background:var(--line); color:var(--dim); cursor:default; }
   details summary { cursor:pointer; color:var(--dim); font-size:13px; }
-  .players { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:4px 10px; margin-top:8px; }
+  .players { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:4px 10px; margin-top:8px; }
   .players label { font-size:13px; display:flex; gap:6px; align-items:center; }
   .players h4 { grid-column:1/-1; margin:8px 0 0; font-size:13px; color:var(--accent); }
+  .hint { color:var(--dim); font-size:13px; }
   .courts { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; margin-top:16px; }
   .court { background:var(--panel); border-radius:12px; padding:10px; }
   .court h3 { margin:2px 0 0; text-align:center; font-size:17px; }
   .court .stat { text-align:center; color:var(--dim); font-size:13px; margin-bottom:6px; }
+  .court.a { box-shadow:inset 0 3px 0 var(--a); } .court.b { box-shadow:inset 0 3px 0 var(--b); }
   .court svg { width:100%; height:auto; display:block; }
+  .pick { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:10px; }
+  .side { background:var(--panel2); border-radius:10px; padding:10px; display:grid; gap:8px; border-top:3px solid var(--a); }
+  .side.b { border-top-color:var(--b); }
+  .side .who { font-size:13px; color:var(--dim); }
+  table.zones { width:100%; border-collapse:collapse; margin-top:16px; background:var(--panel); border-radius:12px; overflow:hidden; font-size:14px; }
+  table.zones th, table.zones td { padding:8px 10px; text-align:right; border-bottom:1px solid #222836; }
+  table.zones th:first-child, table.zones td:first-child { text-align:left; }
+  table.zones th { color:var(--dim); font-weight:500; font-size:12px; }
+  td.better { color:#7ee787; font-weight:600; }
+  .legend { display:flex; gap:16px; justify-content:center; color:var(--dim); font-size:13px; margin-top:12px; flex-wrap:wrap; align-items:center; }
   .legend svg { vertical-align:-1px; }
-  .legend { display:flex; gap:16px; justify-content:center; color:var(--dim); font-size:13px; margin-top:12px; }
-  #tip { position:fixed; pointer-events:none; background:#000d; padding:6px 8px; border-radius:6px; font-size:12px; display:none; }
+  .grad { width:90px; height:10px; border-radius:5px; background:linear-gradient(90deg,#3b5bdb,#38d9a9,#f5c518,#ff6b6b); display:inline-block; vertical-align:middle; }
+  #tip { position:fixed; pointer-events:none; background:#000d; padding:6px 8px; border-radius:6px; font-size:12px; display:none; z-index:5; }
   footer { text-align:center; color:var(--dim); font-size:12px; margin-top:24px; }
+  .hide { display:none !important; }
+  @media (max-width:520px) { .two { grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
-<header><h1>NBA Shot Maps · 2026–27</h1><div id="score">Loading games…</div></header>
+<header><h1>NBA Shot Maps</h1><div class="sub" id="sub">Loading…</div></header>
 <div class="wrap">
-  <div class="controls">
-    <select id="game"></select>
-    <div class="row"><span>Quarter</span><div id="quarters" class="row"></div></div>
-    <div class="row"><span>Result</span><div id="results" class="row"></div></div>
-    <details open>
-      <summary>Players</summary>
-      <div class="row" style="margin-top:8px"><button class="chip" id="all">Select all</button><button class="chip" id="none">Clear</button></div>
-      <div class="players" id="players"></div>
-    </details>
-  </div>
-  <div class="courts" id="courts"></div>
-  <div class="legend"><span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="var(--made)"/></svg> Made</span><span><svg width="12" height="12"><path d="M2 2L10 10M10 2L2 10" stroke="var(--miss)" stroke-width="2"/></svg> Missed</span></div>
-  <footer>Data: NBA.com play-by-play, updated twice daily.</footer>
+  <div class="tabs"><button id="tabGame" class="on">Game</button><button id="tabCmp">Compare players</button></div>
+
+  <!-- ============ GAME VIEW ============ -->
+  <section id="gameView">
+    <div class="controls">
+      <div class="two"><select id="gSeason"></select><select id="game"></select></div>
+      <div class="row"><span class="lbl">Quarter</span><div id="quarters" class="row"></div></div>
+      <div class="row"><span class="lbl">Result</span><div id="results" class="row"></div></div>
+      <details open>
+        <summary>Players</summary>
+        <div class="row" style="margin-top:8px">
+          <button class="chip" id="all">Select all</button><button class="chip" id="none">Clear</button>
+          <button class="go" id="cmpBtn" disabled>Compare</button><span class="hint" id="cmpHint">Tick exactly 2 players to compare</span>
+        </div>
+        <div class="players" id="players"></div>
+      </details>
+    </div>
+    <div class="courts" id="courts"></div>
+  </section>
+
+  <!-- ============ COMPARE VIEW ============ -->
+  <section id="cmpView" class="hide">
+    <div class="controls">
+      <div class="row"><span class="lbl">Compare</span><div id="scopes" class="row"></div></div>
+      <div class="row" id="seasonRow"><span class="lbl">Season</span><select id="cSeason" style="width:auto"></select></div>
+      <div class="pick">
+        <div class="side a"><input type="search" id="pa" list="plist" placeholder="Player 1 — type a name"><select id="ga"></select><div class="who" id="wa"></div></div>
+        <div class="side b"><input type="search" id="pb" list="plist" placeholder="Player 2 — type a name"><select id="gb"></select><div class="who" id="wb"></div></div>
+      </div>
+      <datalist id="plist"></datalist>
+      <div class="row"><span class="lbl">Quarter</span><div id="cQuarters" class="row"></div></div>
+      <div class="row"><span class="lbl">Show</span><div id="cMode" class="row"></div></div>
+    </div>
+    <div class="courts" id="cCourts"></div>
+    <table class="zones" id="zones"></table>
+  </section>
+
+  <div class="legend" id="legDots"><span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="var(--made)"/></svg> Made</span><span><svg width="12" height="12"><path d="M2 2L10 10M10 2L2 10" stroke="var(--miss)" stroke-width="2"/></svg> Missed</span></div>
+  <div class="legend hide" id="legHex"><span>Hexagon size = attempts</span><span>FG% <span class="grad"></span> 0% → 70%+</span></div>
+  <footer>Shot locations from ESPN play-by-play (rounded to ~1 ft), seasons 2024–25 to today. Updated twice daily.</footer>
 </div>
 <div id="tip"></div>
 <script>
 const $ = id => document.getElementById(id);
-let games = [], shots = [], state = { q: "all", r: "all", players: new Set() };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let games = [], gameById = {}, players = [], playerById = {}, shots = [];
+const st = { q:"all", r:"all", sel:new Set() };
+const cs = { scope:"season", q:"all", mode:"auto", a:null, b:null, cache:{} };
 
-// Half-court in NBA "legacy" coords: basket at (0,0), units = 1/10 ft. Drawn with basket at the bottom.
+// ---------- court drawing (NBA legacy coords: basket at 0,0, 1 unit = 0.1 ft) ----------
 const VB = "-252 -2 504 474", Y = y => 422 - y;
 function courtLines() {
   const s = 'stroke="var(--line)" stroke-width="2" fill="none"';
-  return `
-  <rect x="-250" y="${Y(422)}" width="500" height="470" ${s}/>
+  return `<rect x="-250" y="0" width="500" height="470" ${s}/>
   <rect x="-80" y="${Y(142.5)}" width="160" height="190" ${s}/>
   <rect x="-60" y="${Y(142.5)}" width="120" height="190" ${s}/>
   <circle cx="0" cy="${Y(142.5)}" r="60" ${s}/>
@@ -70,77 +120,275 @@ function courtLines() {
   <line x1="-220" y1="${Y(-47.5)}" x2="-220" y2="${Y(92.5)}" ${s}/>
   <line x1="220" y1="${Y(-47.5)}" x2="220" y2="${Y(92.5)}" ${s}/>
   <path d="M-220 ${Y(92.5)} A237.5 237.5 0 0 1 220 ${Y(92.5)}" ${s}/>
-  <path d="M-60 ${Y(422)} A60 60 0 0 0 60 ${Y(422)}" ${s}/>`;
+  <path d="M-60 0 A60 60 0 0 0 60 0" ${s}/>`;
 }
-
-async function init() {
-  games = await (await fetch("data/games.json", {cache:"no-store"})).json();
-  if (!games.length) { $("score").textContent = "No games yet — run the Update shot data action."; return; }
-  $("game").innerHTML = games.map(g => {
-    const d = new Date(g.date).toLocaleDateString(undefined, {month:"short", day:"numeric"});
-    return `<option value="${g.id}">${d} · ${g.away} ${g.as} @ ${g.home} ${g.hs}</option>`;
+const inCourt = s => s.y <= 420 && Math.abs(s.x) <= 250;
+function dotMarks(list, key) {
+  return list.filter(inCourt).map((s, i) => {
+    const x = s.x, y = Y(s.y), info = `data-k="${key}" data-i="${i}"`;
+    return s.m ? `<circle cx="${x}" cy="${y}" r="7" fill="var(--made)" fill-opacity=".85" ${info}/>`
+      : `<path d="M${x-5} ${y-5}L${x+5} ${y+5}M${x+5} ${y-5}L${x-5} ${y+5}" stroke="var(--miss)" stroke-width="3"/><circle cx="${x}" cy="${y}" r="7" fill="transparent" ${info}/>`;
   }).join("");
-  const want = new URLSearchParams(location.search).get("game");
-  if (want && games.some(g => g.id === want)) $("game").value = want;
+}
+function fgColor(p) { // 0 -> blue, .35 -> teal, .5 -> yellow, .7 -> red
+  const stops = [[0,[59,91,219]],[.35,[56,217,169]],[.5,[245,197,24]],[.7,[255,107,107]]];
+  p = Math.max(0, Math.min(.7, p));
+  for (let i = 1; i < stops.length; i++) if (p <= stops[i][0]) {
+    const [p0,c0] = stops[i-1], [p1,c1] = stops[i], t = (p - p0) / (p1 - p0);
+    return `rgb(${c0.map((c,j) => Math.round(c + t * (c1[j] - c))).join(",")})`;
+  }
+}
+function hexMarks(list, key) {
+  const R = 14, w = Math.sqrt(3) * R, bins = {};
+  list.filter(inCourt).forEach(s => {
+    const py = Y(s.y), row = Math.round(py / (1.5 * R)), off = (row & 1) ? w / 2 : 0;
+    const col = Math.round((s.x - off) / w), k = row + "," + col;
+    (bins[k] = bins[k] || { cx: col * w + off, cy: row * 1.5 * R, n: 0, m: 0 }).n++;
+    if (s.m) bins[k].m++;
+  });
+  const vals = Object.values(bins), max = Math.max(1, ...vals.map(b => b.n));
+  return vals.map((b, i) => {
+    const r = R * (0.35 + 0.65 * Math.sqrt(b.n / max)), pts = [];
+    for (let a = 0; a < 6; a++) { const t = Math.PI / 3 * a + Math.PI / 6; pts.push((b.cx + r * Math.cos(t)).toFixed(1) + "," + (b.cy + r * Math.sin(t)).toFixed(1)); }
+    return `<polygon points="${pts.join(" ")}" fill="${fgColor(b.m / b.n)}" data-k="${key}" data-h="${b.m}/${b.n}"/>`;
+  }).join("");
+}
+
+// ---------- stats ----------
+function zoneOf(s) {
+  const d = Math.hypot(s.x, s.y) / 10;
+  if (s.v === 3) return s.y <= 92.5 ? "Corner 3" : "Above-break 3";
+  if (d <= 4) return "At rim";
+  if (Math.abs(s.x) <= 80 && s.y <= 142.5) return "Paint (non-rim)";
+  return "Midrange";
+}
+const ZONES = ["At rim", "Paint (non-rim)", "Midrange", "Corner 3", "Above-break 3"];
+function summary(list) {
+  const fga = list.length, fgm = list.filter(s => s.m).length;
+  const t3 = list.filter(s => s.v === 3), m3 = t3.filter(s => s.m).length;
+  const z = {}; ZONES.forEach(k => z[k] = { a: 0, m: 0 });
+  list.forEach(s => { const k = zoneOf(s); z[k].a++; if (s.m) z[k].m++; });
+  return { fga, fgm, a3: t3.length, m3, efg: fga ? (fgm + 0.5 * m3) / fga : 0, pts: 2 * (fgm - m3) + 3 * m3, z };
+}
+const pct = (m, a) => a ? (100 * m / a).toFixed(1) + "%" : "–";
+
+// ---------- loading ----------
+async function getJSON(u) { const r = await fetch(u, { cache: "no-cache" }); if (!r.ok) throw new Error(u + " " + r.status); return r.json(); }
+async function init() {
+  try { games = await getJSON("data/games.json"); } catch { games = []; }
+  try { players = await getJSON("data/players.json"); } catch { players = []; }
+  if (!games.length) { $("sub").textContent = "No games yet — run the “Update shot map data” action."; return; }
+  games.forEach(g => gameById[g.id] = g);
+  players.forEach(p => playerById[p.id] = p);
+  const seasons = [...new Set(games.map(g => g.season))].sort().reverse();
+  $("sub").textContent = `${games.length.toLocaleString()} games · ${players.length.toLocaleString()} players · ${seasons.at(-1)} to ${seasons[0]}`;
+  $("gSeason").innerHTML = seasons.map(s => `<option>${s}</option>`).join("");
+  $("cSeason").innerHTML = seasons.map(s => `<option>${s}</option>`).join("");
+  $("plist").innerHTML = players.map(p => `<option value="${esc(p.n)} (${p.t})">`).join("");
+
+  chips("quarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], st, "q", drawGame);
+  chips("results", [["all","All"],["made","Made"],["miss","Missed"]], st, "r", drawGame);
+  chips("scopes", [["game","Per game"],["season","Season"],["career","Career"]], cs, "scope", () => { syncScope(); drawCmp(); });
+  chips("cQuarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], cs, "q", drawCmp);
+  chips("cMode", [["auto","Auto"],["dots","Dots"],["hex","Heat map"]], cs, "mode", drawCmp);
+
+  $("gSeason").onchange = () => { fillGames(); loadGame(); };
   $("game").onchange = loadGame;
-  chips("quarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], "q");
-  chips("results", [["all","All"],["made","Made"],["miss","Missed"]], "r");
-  $("all").onclick = () => { shots.forEach(s => state.players.add(s.p)); renderPlayers(); draw(); };
-  $("none").onclick = () => { state.players.clear(); renderPlayers(); draw(); };
-  loadGame();
+  $("all").onclick = () => { shots.forEach(s => st.sel.add(s.pid)); renderPlayers(); drawGame(); };
+  $("none").onclick = () => { st.sel.clear(); renderPlayers(); drawGame(); };
+  $("cmpBtn").onclick = () => { const [a, b] = [...st.sel]; openCompare(a, b, "game", $("game").value); };
+  $("tabGame").onclick = () => show("game");
+  $("tabCmp").onclick = () => { show("cmp"); if (!cs.a && !cs.b) defaultCompare(); };
+  $("cSeason").onchange = () => { syncScope(); drawCmp(); };
+  for (const k of ["a", "b"]) {
+    $("p" + k).onchange = () => { const p = findPlayer($("p" + k).value); if (p) setSide(k, p.id); };
+    $("g" + k).onchange = drawCmp;
+  }
+
+  const q = new URLSearchParams(location.search);
+  if (q.get("view") === "compare") {
+    if (q.get("scope")) cs.scope = q.get("scope");
+    if (q.get("season")) $("cSeason").value = q.get("season");
+    show("cmp", true); chips("scopes", [["game","Per game"],["season","Season"],["career","Career"]], cs, "scope", () => { syncScope(); drawCmp(); });
+    await Promise.all([q.get("a") && setSide("a", q.get("a"), true), q.get("b") && setSide("b", q.get("b"), true)]);
+    if (q.get("ga")) $("ga").value = q.get("ga"); if (q.get("gb")) $("gb").value = q.get("gb");
+    syncScope(); drawCmp();
+  }
+  const want = q.get("game") && gameById[q.get("game")];
+  if (want) $("gSeason").value = want.season;
+  fillGames(); if (want) $("game").value = want.id;
+  await loadGame();
 }
 
-function chips(id, opts, key) {
-  $(id).innerHTML = opts.map(([v,l]) => `<button class="chip ${state[key]===v?"on":""}" data-v="${v}">${l}</button>`).join("");
-  $(id).onclick = e => { const v = e.target.dataset.v; if (!v) return; state[key] = v; chips(id, opts, key); draw(); };
+function show(v, silent) {
+  $("gameView").classList.toggle("hide", v !== "game");
+  $("cmpView").classList.toggle("hide", v !== "cmp");
+  $("tabGame").classList.toggle("on", v === "game");
+  $("tabCmp").classList.toggle("on", v === "cmp");
+  if (!silent) v === "game" ? updateUrlGame() : updateUrlCmp();
+  legend();
 }
 
+function chips(id, opts, obj, key, cb) {
+  $(id).innerHTML = opts.map(([v, l]) => `<button class="chip ${obj[key] === v ? "on" : ""}" data-v="${v}">${l}</button>`).join("");
+  $(id).onclick = e => { const v = e.target.dataset.v; if (!v) return; obj[key] = v; chips(id, opts, obj, key, cb); cb(); };
+}
+const qOk = (q, sel) => sel === "all" || (sel === "ot" ? q > 4 : q == sel);
+const fmtDate = d => new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+const gameLabel = g => `${fmtDate(g.date)} · ${g.away} ${g.as} @ ${g.home} ${g.hs}${g.type && g.type !== "Regular" ? " · " + g.type : ""}`;
+
+// ---------- game view ----------
+function fillGames() {
+  const s = $("gSeason").value;
+  $("game").innerHTML = games.filter(g => g.season === s).map(g => `<option value="${g.id}">${gameLabel(g)}</option>`).join("");
+}
 async function loadGame() {
-  const g = games.find(x => x.id === $("game").value);
-  history.replaceState(null, "", "?game=" + g.id);
-  $("score").textContent = `${g.away} ${g.as} – ${g.hs} ${g.home} · ${new Date(g.date).toLocaleString()}`;
-  shots = await (await fetch(`data/shots/${g.id}.json`)).json();
-  state.players = new Set(shots.map(s => s.p));
-  renderPlayers(); draw();
+  const g = gameById[$("game").value]; if (!g) return;
+  const f = await getJSON(`data/shots/${g.id}.json`);
+  shots = Array.isArray(f) ? f : f.shots;
+  st.sel = new Set(shots.map(s => s.pid));
+  renderPlayers(); drawGame(); updateUrlGame();
 }
-
-function teamsOf() { const g = games.find(x => x.id === $("game").value); return [g.away, g.home]; }
-
+function updateUrlGame() { const g = $("game").value; if (g) history.replaceState(null, "", "?game=" + g); }
+const teamsOf = () => { const g = gameById[$("game").value]; return [g.away, g.home]; };
 function renderPlayers() {
   $("players").innerHTML = teamsOf().map(t => {
-    const ps = [...new Set(shots.filter(s => s.t === t).map(s => s.p))].sort();
-    return `<h4>${t}</h4>` + ps.map(p => {
-      const n = shots.filter(s => s.p === p), m = n.filter(s => s.m).length;
-      return `<label><input type="checkbox" value="${p}" ${state.players.has(p)?"checked":""}> ${p} <span style="color:var(--dim)">${m}/${n.length}</span></label>`;
-    }).join("");
+    const ids = [...new Set(shots.filter(s => s.t === t).map(s => s.pid))];
+    const rows = ids.map(id => { const n = shots.filter(s => s.pid === id); return { id, name: n[0].p, a: n.length, m: n.filter(s => s.m).length }; })
+      .sort((x, y) => y.a - x.a);
+    return `<h4>${t}</h4>` + rows.map(r => `<label><input type="checkbox" value="${r.id}" ${st.sel.has(r.id) ? "checked" : ""}> ${esc(r.name)} <span class="hint">${r.m}/${r.a}</span></label>`).join("");
   }).join("");
-  $("players").onchange = e => { e.target.checked ? state.players.add(e.target.value) : state.players.delete(e.target.value); draw(); };
+  $("players").onchange = e => { e.target.checked ? st.sel.add(e.target.value) : st.sel.delete(e.target.value); drawGame(); };
 }
-
-function draw() {
-  const f = shots.filter(s => state.players.has(s.p)
-    && (state.q === "all" || (state.q === "ot" ? s.q > 4 : s.q == state.q))
-    && (state.r === "all" || (state.r === "made") === !!s.m));
+function drawGame() {
+  const ok = st.sel.size === 2;
+  $("cmpBtn").disabled = !ok;
+  $("cmpHint").textContent = ok ? "Compare these 2 players in this game, season or career" : `Tick exactly 2 players to compare (${st.sel.size} ticked)`;
+  const f = shots.filter(s => st.sel.has(s.pid) && qOk(s.q, st.q) && (st.r === "all" || (st.r === "made") === !!s.m));
+  window._g = {};
   $("courts").innerHTML = teamsOf().map(t => {
-    const ts = f.filter(s => s.t === t), m = ts.filter(s => s.m).length;
-    const t3 = ts.filter(s => s.v === 3), m3 = t3.filter(s => s.m).length;
-    const pct = (a,b) => b ? Math.round(100*a/b) + "%" : "–";
-    const marks = ts.map((s,i) => {
-      const x = s.x, y = Y(s.y), info = `data-i="${shots.indexOf(s)}"`;
-      return s.m ? `<circle cx="${x}" cy="${y}" r="7" fill="var(--made)" fill-opacity=".9" ${info}/>`
-                 : `<path d="M${x-5} ${y-5}L${x+5} ${y+5}M${x+5} ${y-5}L${x-5} ${y+5}" stroke="var(--miss)" stroke-width="3" ${info}/><circle cx="${x}" cy="${y}" r="7" fill="transparent" ${info}/>`;
-    }).join("");
-    return `<div class="court"><h3>${t}</h3><div class="stat">FG ${m}/${ts.length} (${pct(m,ts.length)}) · 3PT ${m3}/${t3.length} (${pct(m3,t3.length)})</div>
-      <svg viewBox="${VB}">${courtLines()}${marks}</svg></div>`;
+    const ts = f.filter(s => s.t === t), S = summary(ts); window._g[t] = ts.filter(inCourt);
+    return `<div class="court"><h3>${t}</h3><div class="stat">FG ${S.fgm}/${S.fga} (${pct(S.fgm, S.fga)}) · 3PT ${S.m3}/${S.a3} (${pct(S.m3, S.a3)})</div>
+      <svg viewBox="${VB}">${courtLines()}${dotMarks(ts, "g:" + t)}</svg></div>`;
   }).join("");
+  legend();
 }
 
+// ---------- compare view ----------
+function findPlayer(v) {
+  v = v.trim().toLowerCase(); if (!v) return null;
+  return players.find(p => `${p.n} (${p.t})`.toLowerCase() === v) || players.find(p => p.n.toLowerCase() === v)
+      || players.find(p => p.n.toLowerCase().includes(v.replace(/\s*\(.*\)$/, "")));
+}
+async function playerShots(id) {
+  if (cs.cache[id]) return cs.cache[id];
+  const f = await getJSON(`data/players/${id}.json`);
+  const c = f.cols;
+  return cs.cache[id] = f.shots.map(r => Object.fromEntries(c.map((k, i) => [k, r[i]])));
+}
+async function setSide(k, id, silent) {
+  const p = playerById[id]; if (!p) return;
+  cs[k] = id;
+  $("p" + k).value = `${p.n} (${p.t})`;
+  await playerShots(id);
+  if (!silent) { syncScope(); drawCmp(); }
+}
+function syncScope() {
+  $("seasonRow").classList.toggle("hide", cs.scope !== "season");
+  const both = cs.a && cs.b ? new Set(cs.cache[cs.a].map(s => s.g)) : null;
+  for (const k of ["a", "b"]) {
+    const sel = $("g" + k);
+    sel.classList.toggle("hide", cs.scope !== "game" || !cs[k]);
+    if (cs.scope !== "game" || !cs[k]) continue;
+    const prev = sel.value;
+    const gids = [...new Set(cs.cache[cs[k]].map(s => s.g))].map(id => gameById[id]).filter(Boolean).sort((x, y) => y.date < x.date ? -1 : 1);
+    sel.innerHTML = gids.map(g => `<option value="${g.id}">${gameLabel(g)}</option>`).join("");
+    if (gids.some(g => g.id === prev)) sel.value = prev;
+    else if (both) { const common = gids.find(g => (k === "a" ? new Set(cs.cache[cs.b].map(s => s.g)) : new Set(cs.cache[cs.a].map(s => s.g))).has(g.id)); if (common) sel.value = common.id; }
+  }
+}
+async function openCompare(a, b, scope, gid) {
+  cs.scope = scope;
+  chips("scopes", [["game","Per game"],["season","Season"],["career","Career"]], cs, "scope", () => { syncScope(); drawCmp(); });
+  if (gid) $("cSeason").value = gameById[gid].season;
+  show("cmp", true);
+  await Promise.all([setSide("a", a, true), setSide("b", b, true)]);
+  syncScope();
+  if (gid) { $("ga").value = gid; $("gb").value = gid; }
+  drawCmp();
+}
+function defaultCompare() {
+  const s = $("cSeason").value, top = players.filter(p => p.seasons.includes(s)).slice(0, 2);
+  if (top.length === 2) openCompare(top[0].id, top[1].id, "season");
+}
+function sideShots(k) {
+  if (!cs[k]) return [];
+  let list = cs.cache[cs[k]];
+  if (cs.scope === "game") list = list.filter(s => s.g === $("g" + k).value);
+  if (cs.scope === "season") list = list.filter(s => s.s === $("cSeason").value);
+  return list.filter(s => qOk(s.q, cs.q));
+}
+function scopeText(k) {
+  if (cs.scope === "game") { const g = gameById[$("g" + k).value]; return g ? gameLabel(g) : ""; }
+  if (cs.scope === "season") return $("cSeason").value + " season";
+  const ss = playerById[cs[k]].seasons; return `Career since ${ss[0]} (${ss.length} season${ss.length > 1 ? "s" : ""})`;
+}
+function drawCmp() {
+  updateUrlCmp();
+  const sides = ["a", "b"].map(k => ({ k, list: sideShots(k), p: playerById[cs[k]] }));
+  window._g = {};
+  const big = Math.max(...sides.map(s => s.list.length));
+  const useHex = cs.mode === "hex" || (cs.mode === "auto" && big > 150);
+  $("cCourts").innerHTML = sides.map(({ k, list, p }) => {
+    $("w" + k).textContent = p ? scopeText(k) : "";
+    if (!p) return `<div class="court ${k}"><h3 class="hint">Pick player ${k === "a" ? 1 : 2}</h3><svg viewBox="${VB}">${courtLines()}</svg></div>`;
+    const S = summary(list); window._g["c:" + k] = list.filter(inCourt);
+    const games_n = new Set(list.map(s => s.g)).size;
+    return `<div class="court ${k}"><h3>${esc(p.n)} <span class="hint">${p.t}</span></h3>
+      <div class="stat">FG ${S.fgm}/${S.fga} (${pct(S.fgm, S.fga)}) · 3PT ${S.m3}/${S.a3} (${pct(S.m3, S.a3)}) · eFG ${(100 * S.efg).toFixed(1)}%${cs.scope !== "game" ? ` · ${games_n} games` : ""}</div>
+      <svg viewBox="${VB}">${courtLines()}${list.length ? (useHex ? hexMarks(list, "c:" + k) : dotMarks(list, "c:" + k)) : `<text x="0" y="200" text-anchor="middle" fill="var(--dim)" font-size="22">No shots</text>`}</svg></div>`;
+  }).join("");
+  $("legDots").classList.toggle("hide", useHex); $("legHex").classList.toggle("hide", !useHex);
+  // zone table
+  const [A, B] = sides.map(s => s.p ? summary(s.list) : null);
+  if (!A || !B) { $("zones").innerHTML = ""; return; }
+  const name = s => esc(s.p.n.split(" ").slice(-1)[0]);
+  const row = (label, a, b, better) => `<tr><td>${label}</td><td class="${better === 1 ? "better" : ""}">${a}</td><td class="${better === 2 ? "better" : ""}">${b}</td></tr>`;
+  const cmp = (x, y, ax, ay) => (ax < 5 || ay < 5 || x === y) ? 0 : x > y ? 1 : 2;
+  let h = `<tr><th>Zone (FGM/FGA, FG%, share of shots)</th><th style="color:var(--a)">${name(sides[0])}</th><th style="color:var(--b)">${name(sides[1])}</th></tr>`;
+  h += row("All shots", `${A.fgm}/${A.fga} · ${pct(A.fgm, A.fga)}`, `${B.fgm}/${B.fga} · ${pct(B.fgm, B.fga)}`, cmp(A.fgm / A.fga, B.fgm / B.fga, A.fga, B.fga));
+  h += row("eFG%", (100 * A.efg).toFixed(1) + "%", (100 * B.efg).toFixed(1) + "%", cmp(A.efg, B.efg, A.fga, B.fga));
+  h += row("Points from FG", A.pts, B.pts, 0);
+  ZONES.forEach(z => {
+    const a = A.z[z], b = B.z[z];
+    h += row(z, `${a.m}/${a.a} · ${pct(a.m, a.a)} · ${pct(a.a, A.fga)}`, `${b.m}/${b.a} · ${pct(b.m, b.a)} · ${pct(b.a, B.fga)}`, cmp(a.m / a.a, b.m / b.a, a.a, b.a));
+  });
+  $("zones").innerHTML = h;
+}
+function updateUrlCmp() {
+  const q = new URLSearchParams({ view: "compare", scope: cs.scope });
+  if (cs.a) q.set("a", cs.a); if (cs.b) q.set("b", cs.b);
+  if (cs.scope === "season") q.set("season", $("cSeason").value);
+  if (cs.scope === "game") { if ($("ga").value) q.set("ga", $("ga").value); if ($("gb").value) q.set("gb", $("gb").value); }
+  history.replaceState(null, "", "?" + q);
+}
+function legend() {
+  if (!$("cmpView").classList.contains("hide")) return;
+  $("legDots").classList.remove("hide"); $("legHex").classList.add("hide");
+}
+
+// ---------- tooltip ----------
 document.addEventListener("pointermove", e => {
-  const i = e.target.dataset && e.target.dataset.i, tip = $("tip");
-  if (i === undefined) { tip.style.display = "none"; return; }
-  const s = shots[i];
-  tip.innerHTML = `<b>${s.p}</b> · Q${s.q > 4 ? "OT" + (s.q-4) : s.q} ${s.c}<br>${s.v}PT ${s.d || ""} · ${s.m ? "Made" : "Missed"} · ${Math.round(Math.hypot(s.x, s.y)/10)} ft`;
-  tip.style.display = "block"; tip.style.left = (e.clientX + 12) + "px"; tip.style.top = (e.clientY + 12) + "px";
+  const t = e.target.dataset || {}, tip = $("tip");
+  if (t.h) { tip.innerHTML = `${t.h} made here (${pct(...t.h.split("/").map(Number))})`; }
+  else if (t.k && t.i !== undefined) {
+    const s = window._g[t.k.replace(/^g:/, "")] ? window._g[t.k.replace(/^g:/, "")][t.i] : window._g[t.k][t.i];
+    if (!s) { tip.style.display = "none"; return; }
+    const g = gameById[s.g];
+    tip.innerHTML = `<b>${esc(s.p || (playerById[cs[t.k.slice(2)]] || {}).n || "")}</b> · Q${s.q > 4 ? "OT" + (s.q - 4) : s.q} ${s.c || ""}<br>${s.v}PT ${esc(s.d || "")} · ${s.m ? "Made" : "Missed"} · ${Math.round(Math.hypot(s.x, s.y) / 10)} ft${g ? "<br>" + gameLabel(g) : ""}`;
+  } else { tip.style.display = "none"; return; }
+  tip.style.display = "block";
+  tip.style.left = Math.min(e.clientX + 12, innerWidth - 220) + "px"; tip.style.top = (e.clientY + 12) + "px";
 });
 init();
 </script>

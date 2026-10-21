@@ -1,91 +1,97 @@
-"""Fetch finished games of the current NBA season and their shot locations.
+"""Fetch NBA shot locations from ESPN for every game since the 2024-25 season.
 
-Tries NBA.com first; if it blocks the request (it often refuses cloud servers),
-falls back to ESPN's public API. Output format is the same either way:
-x/y in tenths of a foot relative to the basket (NBA "legacy" coordinates).
+Writes (all relative to this folder):
+  data/games.json            list of games, newest first
+  data/shots/<gameId>.json   every field-goal attempt of one game
+  data/players.json          index of players with shot counts
+  data/players/<id>.json     every shot of one player, all seasons
+
+Coordinates: tenths of a foot relative to the basket (NBA "legacy" style).
+Run again any time: games already downloaded are skipped.
 """
-import json, os, re, statistics, urllib.request
+import json, os, re, statistics, time, urllib.request
 from datetime import date, timedelta
 
-SEASON_START = date(2026, 10, 1)          # only games from this season
-os.makedirs("data/shots", exist_ok=True)
+FIRST_SEASON_START = date(2024, 10, 1)   # 2024-25 season onwards
+ESPN = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
+KEEP_TYPES = {2, 3, 5}                    # regular season, playoffs, play-in
+VERSION = 2                               # bump to force re-download of old files
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/130.0 Safari/537.36")
+MAX_MINUTES = float(os.environ.get("MAX_MINUTES", "300"))  # stop early, next run continues
+
+os.makedirs("data/shots", exist_ok=True)
+os.makedirs("data/players", exist_ok=True)
+T0 = time.time()
 
 
-def get(url, nba=False):
-    h = {"User-Agent": UA, "Accept": "application/json, text/plain, */*",
-         "Accept-Language": "en-US,en;q=0.9"}
-    if nba:
-        h.update({"Origin": "https://www.nba.com", "Referer": "https://www.nba.com/"})
-    with urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=30) as r:
-        return json.load(r)
-
-
-def save(gid, shots):
-    json.dump(shots, open(f"data/shots/{gid}.json", "w"), separators=(",", ":"))
-    n3 = [s for s in shots if s["v"] == 3]
-    d3 = statistics.median([(s["x"] ** 2 + s["y"] ** 2) ** .5 / 10 for s in n3]) if n3 else 0
-    print(f"saved {gid}: {len(shots)} shots, median 3PT distance {d3:.1f} ft")
-
-
-# ---------------------------------------------------------------- NBA.com
-def from_nba():
-    base = "https://cdn.nba.com/static/json"
-    sched = get(f"{base}/staticData/scheduleLeagueV2.json", nba=True)
-    games = []
-    for day in sched["leagueSchedule"]["gameDates"]:
-        for g in day["games"]:
-            if g.get("gameStatus") != 3 or g["gameDateTimeUTC"][:10] < SEASON_START.isoformat():
-                continue
-            if not g["gameId"].startswith(("002", "004", "006")):
-                continue  # skip preseason
-            games.append({"id": g["gameId"], "date": g["gameDateTimeUTC"],
-                          "home": g["homeTeam"]["teamTricode"], "away": g["awayTeam"]["teamTricode"],
-                          "hs": g["homeTeam"]["score"], "as": g["awayTeam"]["score"]})
-    for g in games:
-        if os.path.exists(f"data/shots/{g['id']}.json"):
-            continue
-        acts = get(f"{base}/liveData/playbyplay/playbyplay_{g['id']}.json", nba=True)["game"]["actions"]
-        save(g["id"], [{
-            "p": a.get("playerNameI") or a.get("playerName"), "t": a["teamTricode"],
-            "q": a["period"], "m": 1 if a.get("shotResult") == "Made" else 0,
-            "v": 3 if a["actionType"] == "3pt" else 2,
-            "x": a["xLegacy"], "y": a["yLegacy"],
-            "c": a.get("clock", "")[2:7].replace("M", ":"), "d": a.get("subType", ""),
-        } for a in acts if a.get("isFieldGoal") == 1 and a.get("xLegacy") is not None])
-    return games
-
-
-# ---------------------------------------------------------------- ESPN
-ESPN = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
-
-
-def from_espn():
-    games, d = [], SEASON_START
-    while d <= date.today():
-        end = d
+def get(url, tries=3):
+    for i in range(tries):
         try:
-            sb = get(f"{ESPN}/scoreboard?dates={d:%Y%m%d}")
+            req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return json.load(r)
         except Exception as e:
-            print("scoreboard", d, e); d += timedelta(days=1); continue
-        for e in sb.get("events", []):
-            if e["season"].get("type") == 1 or not e["status"]["type"].get("completed"):
-                continue  # skip preseason and unfinished games
-            c = {t["homeAway"]: t for t in e["competitions"][0]["competitors"]}
-            games.append({"id": "espn" + e["id"], "date": e["date"],
-                          "home": c["home"]["team"]["abbreviation"], "away": c["away"]["team"]["abbreviation"],
-                          "hs": int(c["home"]["score"]), "as": int(c["away"]["score"])})
-        d = end + timedelta(days=1)
-    for g in games:
-        if not os.path.exists(f"data/shots/{g['id']}.json"):
-            try:
-                save(g["id"], espn_shots(g["id"][4:]))
-            except Exception as e:
-                print("skip", g["id"], e)
-    return games
+            if i == tries - 1:
+                raise
+            time.sleep(2 * (i + 1))
 
 
+def season_label(year):
+    """ESPN season year 2027 -> '2026-27'."""
+    return f"{year - 1}-{str(year)[2:]}"
+
+
+def load_json(path, default):
+    try:
+        return json.load(open(path))
+    except Exception:
+        return default
+
+
+# ---------------------------------------------------------------- game list
+old = {g["id"]: g for g in load_json("data/games.json", [])}
+# Days already fully scanned (all games finished) do not need re-checking.
+scanned = set(load_json("data/scanned_days.json", []))
+games = dict(old)
+d = FIRST_SEASON_START
+today = date.today()
+while d <= today:
+    key = d.isoformat()
+    if key in scanned:
+        d += timedelta(days=1)
+        continue
+    try:
+        sb = get(f"{ESPN}/scoreboard?dates={d:%Y%m%d}")
+    except Exception as e:
+        print("scoreboard", key, e)
+        d += timedelta(days=1)
+        continue
+    all_done = True
+    for e in sb.get("events", []):
+        st = e["season"].get("type")
+        if not e["status"]["type"].get("completed"):
+            all_done = False
+            continue
+        if st not in KEEP_TYPES:
+            continue
+        comp = e["competitions"][0]
+        c = {t["homeAway"]: t for t in comp["competitors"]}
+        games["espn" + e["id"]] = {
+            "id": "espn" + e["id"], "date": e["date"],
+            "season": season_label(e["season"]["year"]),
+            "type": {2: "Regular", 3: "Playoffs", 5: "Play-in"}[st],
+            "home": c["home"]["team"]["abbreviation"], "away": c["away"]["team"]["abbreviation"],
+            "hs": int(c["home"]["score"]), "as": int(c["away"]["score"]),
+        }
+    if all_done and d < today - timedelta(days=1):
+        scanned.add(key)
+    d += timedelta(days=1)
+json.dump(sorted(scanned), open("data/scanned_days.json", "w"))
+print(f"{len(games)} finished games since {FIRST_SEASON_START}")
+
+
+# ---------------------------------------------------------------- shots per game
 def espn_shots(eid):
     s = get(f"{ESPN}/summary?event={eid}")
     team = {t["team"]["id"]: t["team"]["abbreviation"] for t in s["boxscore"]["teams"]}
@@ -95,7 +101,7 @@ def espn_shots(eid):
             for a in st["athletes"]:
                 ath = a["athlete"]
                 first, _, last = ath["displayName"].partition(" ")
-                names[ath["id"]] = f"{first[:1]}. {last}" if last else first
+                names[ath["id"]] = (f"{first[:1]}. {last}" if last else first, ath["displayName"])
     raw = []
     for p in s.get("plays", []):
         txt = p.get("text", "").lower()
@@ -105,36 +111,72 @@ def espn_shots(eid):
         x, y = co.get("x"), co.get("y")
         if x is None or y is None or abs(x) > 200 or abs(y) > 200:
             continue
-        ft = re.search(r"(\d+)-foot", txt)
-        raw.append({"x": x, "y": y, "txt": txt, "ft": int(ft.group(1)) if ft else None,
-                    "p": names.get((p.get("participants") or [{}])[0].get("athlete", {}).get("id"), "Unknown"),
+        pid = (p.get("participants") or [{}])[0].get("athlete", {}).get("id")
+        short, full = names.get(pid, ("Unknown", "Unknown"))
+        raw.append({"x": x, "y": y, "txt": txt, "pid": pid or "0", "p": short, "n": full,
                     "t": team.get(p.get("team", {}).get("id"), "?"), "q": p["period"]["number"],
                     "m": 1 if p.get("scoringPlay") else 0,
                     "v": 3 if "three point" in txt else 2,
                     "c": p.get("clock", {}).get("displayValue", ""), "d": p.get("type", {}).get("text", "")})
     if not raw:
         return []
-    # Find the basket from dunks/layups, then convert feet -> tenths of a foot relative to it.
+    # Locate the basket from shots at the rim, then convert feet -> tenths of a foot.
     near = [r for r in raw if any(k in r["txt"] for k in ("dunk", "layup", "tip"))] or raw
     rx = statistics.median(r["x"] for r in near)
     ry = statistics.median(r["y"] for r in near)
     sign = 1 if statistics.median(r["y"] for r in raw) >= ry else -1
-    out = []
-    for r in raw:
-        out.append({k: r[k] for k in ("p", "t", "q", "m", "v", "c", "d")} |
-                   {"x": round((r["x"] - rx) * 10), "y": round((r["y"] - ry) * 10 * sign)})
-    return out
+    return [{k: r[k] for k in ("pid", "p", "n", "t", "q", "m", "v", "c", "d")} |
+            {"x": round((r["x"] - rx) * 10), "y": round((r["y"] - ry) * 10 * sign)} for r in raw]
 
 
-# ---------------------------------------------------------------- main
-try:
-    games = from_nba()
-    print(f"NBA.com: {len(games)} games")
-except Exception as e:
-    print("NBA.com failed:", e, "-> using ESPN")
-    games = from_espn()
-    print(f"ESPN: {len(games)} games")
+def done(g):
+    f = load_json(f"data/shots/{g['id']}.json", None)
+    return isinstance(f, dict) and f.get("v") == VERSION
 
-games.sort(key=lambda g: g["date"], reverse=True)
-games = [g for g in games if os.path.exists(f"data/shots/{g['id']}.json")]
-json.dump(games, open("data/games.json", "w"), indent=0)
+
+todo = [g for g in sorted(games.values(), key=lambda g: g["date"], reverse=True) if not done(g)]
+print(f"{len(todo)} games to download")
+for i, g in enumerate(todo):
+    if (time.time() - T0) / 60 > MAX_MINUTES:
+        print("time limit reached; the next run continues from here")
+        break
+    try:
+        shots = espn_shots(g["id"][4:])
+    except Exception as e:
+        print("skip", g["id"], e)
+        continue
+    json.dump({"v": VERSION, "shots": shots}, open(f"data/shots/{g['id']}.json", "w"), separators=(",", ":"))
+    if i % 50 == 0:
+        print(f"[{i + 1}/{len(todo)}] {g['date'][:10]} {g['away']}@{g['home']}: {len(shots)} shots")
+    time.sleep(0.15)
+
+
+# ---------------------------------------------------------------- write indexes
+have = []
+players = {}
+for g in games.values():
+    f = load_json(f"data/shots/{g['id']}.json", None)
+    if not isinstance(f, dict) or f.get("v") != VERSION:
+        continue
+    have.append(g)
+    for s in f["shots"]:
+        if s["pid"] == "0":
+            continue
+        p = players.setdefault(s["pid"], {"id": s["pid"], "n": s["n"], "p": s["p"], "t": s["t"], "last": "", "shots": []})
+        if g["date"] > p["last"]:
+            p["last"], p["t"] = g["date"], s["t"]
+        p["shots"].append([g["id"], g["season"], s["t"], s["q"], s["m"], s["v"], s["x"], s["y"], s["d"]])
+
+have.sort(key=lambda g: g["date"], reverse=True)
+json.dump(have, open("data/games.json", "w"), separators=(",", ":"))
+
+index = []
+for p in players.values():
+    p["shots"].sort(key=lambda r: games[r[0]]["date"])
+    json.dump({"id": p["id"], "n": p["n"], "cols": ["g", "s", "t", "q", "m", "v", "x", "y", "d"],
+               "shots": p["shots"]}, open(f"data/players/{p['id']}.json", "w"), separators=(",", ":"))
+    seasons = sorted({r[1] for r in p["shots"]})
+    index.append({"id": p["id"], "n": p["n"], "t": p["t"], "fga": len(p["shots"]), "seasons": seasons})
+index.sort(key=lambda p: -p["fga"])
+json.dump(index, open("data/players.json", "w"), separators=(",", ":"))
+print(f"wrote {len(have)} games, {len(index)} players in {(time.time() - T0) / 60:.1f} min")
