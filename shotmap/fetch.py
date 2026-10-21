@@ -209,4 +209,20 @@ for p in players.values():
     index.append({"id": p["id"], "n": p["n"], "t": p["t"], "fga": len(p["shots"]), "seasons": seasons})
 index.sort(key=lambda p: -p["fga"])
 json.dump(index, open("data/players.json", "w"), separators=(",", ":"))
-print(f"wrote {len(have)} games, {len(index)} players in {(time.time() - T0) / 60:.1f} min")
+# team files: every shot a team took in a season, for the team comparison
+os.makedirs("data/teams", exist_ok=True)
+teams = {}
+for p in players.values():
+    for g, season, t, q, m, v, x, y, d in p["shots"]:
+        tm = teams.setdefault((t, season), {"team": t, "season": season, "players": {}, "shots": []})
+        tm["players"][p["id"]] = p["n"]
+        tm["shots"].append([g, p["id"], q, m, v, x, y])
+team_index = []
+for (t, season), tm in teams.items():
+    tm["shots"].sort(key=lambda r: games[r[0]]["date"])
+    tm["cols"] = ["g", "pid", "q", "m", "v", "x", "y"]
+    json.dump(tm, open(f"data/teams/{t}_{season}.json", "w"), separators=(",", ":"))
+    team_index.append({"t": t, "s": season, "fga": len(tm["shots"]), "games": len({r[0] for r in tm["shots"]})})
+team_index.sort(key=lambda r: (r["s"], r["t"]))
+json.dump(team_index, open("data/teams.json", "w"), separators=(",", ":"))
+print(f"wrote {len(have)} games, {len(index)} players, {len(team_index)} team-seasons in {(time.time() - T0) / 60:.1f} min")

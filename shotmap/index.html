@@ -68,7 +68,7 @@
 <body>
 <header><h1>NBA Shot Maps</h1><div class="sub" id="sub">Loading…</div></header>
 <div class="wrap">
-  <div class="tabs"><button id="tabGame" class="on">Game</button><button id="tabCmp">Compare players</button></div>
+  <div class="tabs"><button id="tabGame" class="on">Game</button><button id="tabCmp">Compare players</button><button id="tabTeam">Compare teams</button></div>
 
   <!-- ============ GAME VIEW ============ -->
   <section id="gameView">
@@ -110,12 +110,30 @@
       <datalist id="plist"></datalist>
       <div class="row"><span class="lbl">Quarter</span><div id="cQuarters" class="row"></div></div>
       <div class="row"><span class="lbl">Show</span><div id="cMode" class="row"></div></div>
+      <div class="row heatOnly"><span class="lbl">Colour by</span><div id="cColor" class="row"></div></div>
     </div>
     <div class="courts" id="cCourts"></div>
     <table class="zones" id="zones"></table>
   </section>
 
+  <!-- ============ TEAM VIEW ============ -->
+  <section id="teamView" class="hide">
+    <div class="controls">
+      <div class="row"><span class="lbl">Season</span><select id="tSeason" style="width:auto"></select></div>
+      <div class="pick">
+        <div class="side a"><select id="ta"></select><div class="row"><button class="chip" data-all="a">All</button><button class="chip" data-none="a">None</button><span class="hint">Untick players to see the team without them</span></div><div class="players" id="tpa"></div></div>
+        <div class="side b"><select id="tb"></select><div class="row"><button class="chip" data-all="b">All</button><button class="chip" data-none="b">None</button></div><div class="players" id="tpb"></div></div>
+      </div>
+      <div class="row"><span class="lbl">Quarter</span><div id="tQuarters" class="row"></div></div>
+      <div class="row"><span class="lbl">Show</span><div id="tMode" class="row"></div></div>
+      <div class="row heatOnly"><span class="lbl">Colour by</span><div id="tColor" class="row"></div></div>
+    </div>
+    <div class="courts" id="tCourts"></div>
+    <table class="zones" id="tZones"></table>
+  </section>
+
   <div class="legend" id="legDots"><span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="var(--made)"/></svg> Made</span><span><svg width="12" height="12"><path d="M2 2L10 10M10 2L2 10" stroke="var(--miss)" stroke-width="2"/></svg> Missed</span></div>
+  <div class="legend hide" id="legHeat"><span id="legHeatTxt">Where shots come from</span><span><span class="grad" id="legHeatBar" style="background:linear-gradient(90deg,#1d3b8f,#1fb5c9,#3ddc84,#f5e04a,#ff4b2b)"></span> <span id="legHeatEnds">rare → most</span></span></div>
   <div class="legend hide" id="legHex"><span>Hexagon size = attempts</span><span>FG% <span class="grad"></span> 0% → 70%+</span></div>
   <footer>Shot locations from ESPN play-by-play (rounded to ~1 ft), seasons 2024–25 to today. Updated twice daily.</footer>
 </div>
@@ -125,7 +143,10 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let games = [], gameById = {}, players = [], playerById = {}, shots = [];
 const st = { q:"all", r:"all", sel:new Set(), t:2880, max:2880, tl:null, timer:null };
-const cs = { scope:"season", q:"all", mode:"auto", a:null, b:null, cache:{} };
+const cs = { scope:"season", q:"all", mode:"auto", color:"freq", a:null, b:null, cache:{} };
+const ts = { q:"all", mode:"heat", color:"freq", a:null, b:null, off:{ a:new Set(), b:new Set() }, cache:{}, index:[] };
+const MODES = [["auto","Auto"],["dots","Dots"],["hex","Hexagons"],["heat","Heat map"]];
+const COLORS = [["freq","Shot frequency"],["fg","FG%"]];
 
 // ---------- court drawing (NBA legacy coords: basket at 0,0, 1 unit = 0.1 ft) ----------
 const VB = "-252 -2 504 474", Y = y => 422 - y;
@@ -175,6 +196,45 @@ function hexMarks(list, key) {
   }).join("");
 }
 
+// Smooth heat map: Gaussian-blurred shot grid drawn to a canvas and laid under the court lines.
+function blur(grid, W, H, sig) {
+  const r = Math.ceil(sig * 3), k = []; let ks = 0;
+  for (let i = -r; i <= r; i++) { const v = Math.exp(-(i * i) / (2 * sig * sig)); k.push(v); ks += v; }
+  k.forEach((v, i) => k[i] = v / ks);
+  const tmp = new Float32Array(W * H), out = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { let a = 0; for (let i = -r; i <= r; i++) { const xx = x + i; if (xx >= 0 && xx < W) a += grid[y * W + xx] * k[i + r]; } tmp[y * W + x] = a; }
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { let a = 0; for (let i = -r; i <= r; i++) { const yy = y + i; if (yy >= 0 && yy < H) a += tmp[yy * W + x] * k[i + r]; } out[y * W + x] = a; }
+  return out;
+}
+const JET = [[0,[29,59,143]],[.25,[31,181,201]],[.5,[61,220,132]],[.75,[245,224,74]],[1,[255,75,43]]];
+function ramp(stops, p) {
+  p = Math.max(0, Math.min(1, p));
+  for (let i = 1; i < stops.length; i++) if (p <= stops[i][0]) {
+    const [p0, c0] = stops[i - 1], [p1, c1] = stops[i], t = (p - p0) / (p1 - p0);
+    return c0.map((c, j) => Math.round(c + t * (c1[j] - c)));
+  }
+  return stops.at(-1)[1];
+}
+function heatMarks(list, colorBy) {
+  const C = 5, W = 100, H = 94, att = new Float32Array(W * H), made = new Float32Array(W * H);
+  list.filter(inCourt).forEach(s => {
+    const gx = Math.floor((s.x + 250) / C), gy = Math.floor(Y(s.y) / C);
+    if (gx < 0 || gx >= W || gy < 0 || gy >= H) return;
+    att[gy * W + gx]++; if (s.m) made[gy * W + gx]++;
+  });
+  const sig = list.length > 400 ? 3.2 : 4.5, A = blur(att, W, H, sig), M = blur(made, W, H, sig);
+  let max = 0; for (const v of A) max = Math.max(max, v);
+  const cv = document.createElement("canvas"); cv.width = W; cv.height = H;
+  const cx = cv.getContext("2d"), img = cx.createImageData(W, H);
+  for (let i = 0; i < W * H; i++) {
+    const d = max ? A[i] / max : 0; if (d < 0.02) continue;
+    const rgb = colorBy === "fg" ? ramp(JET, (M[i] / A[i] - 0.25) / 0.45) : ramp(JET, Math.pow(d, 0.55));
+    img.data.set([...rgb, Math.round(255 * Math.min(1, 0.25 + (colorBy === "fg" ? Math.pow(d, 0.5) : Math.pow(d, 0.35))) * 0.92)], i * 4);
+  }
+  cx.putImageData(img, 0, 0);
+  return `<image href="${cv.toDataURL()}" x="-250" y="0" width="500" height="470" preserveAspectRatio="none" style="filter:blur(2px)"/>`;
+}
+
 // ---------- stats ----------
 function zoneOf(s) {
   const d = Math.hypot(s.x, s.y) / 10;
@@ -213,7 +273,24 @@ async function init() {
   chips("results", [["all","All"],["made","Made"],["miss","Missed"]], st, "r", drawGame);
   chips("scopes", [["game","Per game"],["season","Season"],["career","Career"]], cs, "scope", () => { syncScope(); drawCmp(); });
   chips("cQuarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], cs, "q", drawCmp);
-  chips("cMode", [["auto","Auto"],["dots","Dots"],["hex","Heat map"]], cs, "mode", drawCmp);
+  chips("cMode", MODES, cs, "mode", drawCmp);
+  chips("cColor", COLORS, cs, "color", drawCmp);
+  chips("tQuarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], ts, "q", drawTeams);
+  chips("tMode", MODES, ts, "mode", drawTeams);
+  chips("tColor", COLORS, ts, "color", drawTeams);
+  try { ts.index = await getJSON("data/teams.json"); } catch { ts.index = []; }
+  const tSeasons = [...new Set(ts.index.map(r => r.s))].sort().reverse();
+  $("tSeason").innerHTML = tSeasons.map(x => `<option>${x}</option>`).join("");
+  if (!ts.index.length) $("tabTeam").disabled = true, $("tabTeam").title = "Team data is still being built";
+  $("tSeason").onchange = () => { ts.off.a.clear(); ts.off.b.clear(); fillTeams(); loadTeams(); };
+  for (const k of ["a", "b"]) $("t" + k).onchange = () => { ts.off[k].clear(); loadTeams(); };
+  $("teamView").onclick = e => {
+    const k = e.target.dataset.all || e.target.dataset.none; if (!k) return;
+    if (e.target.dataset.all) ts.off[k].clear();
+    else ts.cache[ts[k] + "_" + $("tSeason").value] && Object.keys(ts.cache[ts[k] + "_" + $("tSeason").value].players).forEach(id => ts.off[k].add(id));
+    loadTeams();
+  };
+  $("tabTeam").onclick = () => { show("team"); if (!$("tpa").innerHTML) { fillTeams(); loadTeams(); } };
 
   $("gSeason").onchange = () => { fillGames(); loadGame(); };
   $("game").onchange = loadGame;
@@ -245,6 +322,10 @@ async function init() {
     if (q.get("ga")) $("ga").value = q.get("ga"); if (q.get("gb")) $("gb").value = q.get("gb");
     syncScope(); drawCmp();
   }
+  if (q.get("view") === "teams" && ts.index.length) {
+    if (q.get("season")) $("tSeason").value = q.get("season");
+    show("team", true); ts.a = q.get("a"); ts.b = q.get("b"); fillTeams(); await loadTeams();
+  }
   const want = q.get("game") && gameById[q.get("game")];
   if (want) $("gSeason").value = want.season;
   fillGames(); if (want) $("game").value = want.id;
@@ -254,9 +335,11 @@ async function init() {
 function show(v, silent) {
   $("gameView").classList.toggle("hide", v !== "game");
   $("cmpView").classList.toggle("hide", v !== "cmp");
+  $("teamView").classList.toggle("hide", v !== "team");
   $("tabGame").classList.toggle("on", v === "game");
   $("tabCmp").classList.toggle("on", v === "cmp");
-  if (!silent) v === "game" ? updateUrlGame() : updateUrlCmp();
+  $("tabTeam").classList.toggle("on", v === "team");
+  if (!silent && v !== "team") v === "game" ? updateUrlGame() : updateUrlCmp();
   legend();
 }
 
@@ -359,7 +442,7 @@ async function playerShots(id) {
   if (cs.cache[id]) return cs.cache[id];
   const f = await getJSON(`data/players/${id}.json`);
   const c = f.cols;
-  return cs.cache[id] = f.shots.map(r => Object.fromEntries(c.map((k, i) => [k, r[i]])));
+  return cs.cache[id] = f.shots.map(r => ({ ...Object.fromEntries(c.map((k, i) => [k, r[i]])), p: f.n }));
 }
 async function setSide(k, id, silent) {
   const p = playerById[id]; if (!p) return;
@@ -408,29 +491,29 @@ function scopeText(k) {
   if (cs.scope === "season") return $("cSeason").value + " season";
   const ss = playerById[cs[k]].seasons; return `Career since ${ss[0]} (${ss.length} season${ss.length > 1 ? "s" : ""})`;
 }
-function drawCmp() {
-  updateUrlCmp();
-  const sides = ["a", "b"].map(k => ({ k, list: sideShots(k), p: playerById[cs[k]] }));
-  window._g = {};
-  const big = Math.max(...sides.map(s => s.list.length));
-  const useHex = cs.mode === "hex" || (cs.mode === "auto" && big > 150);
-  $("cCourts").innerHTML = sides.map(({ k, list, p }) => {
-    $("w" + k).textContent = p ? scopeText(k) : "";
-    if (!p) return `<div class="court ${k}"><h3 class="hint">Pick player ${k === "a" ? 1 : 2}</h3><svg viewBox="${VB}">${courtLines()}</svg></div>`;
-    const S = summary(list); window._g["c:" + k] = list.filter(inCourt);
-    const games_n = new Set(list.map(s => s.g)).size;
-    return `<div class="court ${k}"><h3>${esc(p.n)} <span class="hint">${p.t}</span></h3>
-      <div class="stat">FG ${S.fgm}/${S.fga} (${pct(S.fgm, S.fga)}) · 3PT ${S.m3}/${S.a3} (${pct(S.m3, S.a3)}) · eFG ${(100 * S.efg).toFixed(1)}%${cs.scope !== "game" ? ` · ${games_n} games` : ""}</div>
-      <svg viewBox="${VB}">${courtLines()}${list.length ? (useHex ? hexMarks(list, "c:" + k) : dotMarks(list, "c:" + k)) : `<text x="0" y="200" text-anchor="middle" fill="var(--dim)" font-size="22">No shots</text>`}</svg></div>`;
+function drawPair(courtsId, zonesId, sides, mode, colorBy) {
+  const big = Math.max(0, ...sides.map(s => s.list.length));
+  const kind = mode === "auto" ? (big > 150 ? "heat" : "dots") : mode;
+  $(courtsId).innerHTML = sides.map(({ k, title, tag, sub, list, empty }) => {
+    if (empty) return `<div class="court ${k}"><h3 class="hint">${empty}</h3><svg viewBox="${VB}">${courtLines()}</svg></div>`;
+    const S = summary(list); window._g[courtsId + k] = list.filter(inCourt);
+    const marks = !list.length ? `<text x="0" y="200" text-anchor="middle" fill="var(--dim)" font-size="22">No shots</text>`
+      : kind === "heat" ? heatMarks(list, colorBy) : kind === "hex" ? hexMarks(list, courtsId + k) : dotMarks(list, courtsId + k);
+    const lines = kind === "heat" ? courtLines().replaceAll('stroke="var(--line)"', 'stroke="#ffffff66"') : courtLines();
+    return `<div class="court ${k}"><h3>${esc(title)} <span class="hint">${tag || ""}</span></h3>
+      <div class="stat">FG ${S.fgm}/${S.fga} (${pct(S.fgm, S.fga)}) · 3PT ${S.m3}/${S.a3} (${pct(S.m3, S.a3)}) · eFG ${(100 * S.efg).toFixed(1)}%${sub ? " · " + sub : ""}</div>
+      <svg viewBox="${VB}">${kind === "heat" ? marks + lines : lines + marks}</svg></div>`;
   }).join("");
-  $("legDots").classList.toggle("hide", useHex); $("legHex").classList.toggle("hide", !useHex);
-  // zone table
-  const [A, B] = sides.map(s => s.p ? summary(s.list) : null);
-  if (!A || !B) { $("zones").innerHTML = ""; return; }
-  const name = s => esc(s.p.n.split(" ").slice(-1)[0]);
+  document.querySelectorAll(".heatOnly").forEach(el => el.classList.toggle("hide", kind !== "heat"));
+  $("legDots").classList.toggle("hide", kind !== "dots"); $("legHex").classList.toggle("hide", kind !== "hex");
+  $("legHeat").classList.toggle("hide", kind !== "heat");
+  $("legHeatTxt").textContent = colorBy === "fg" ? "FG% in each area (faint = few shots)" : "Where shots come from";
+  $("legHeatEnds").textContent = colorBy === "fg" ? "25% → 70%" : "rare → most";
+  const [A, B] = sides.map(s => s.empty ? null : summary(s.list));
+  if (!A || !B) { $(zonesId).innerHTML = ""; return; }
   const row = (label, a, b, better) => `<tr><td>${label}</td><td class="${better === 1 ? "better" : ""}">${a}</td><td class="${better === 2 ? "better" : ""}">${b}</td></tr>`;
   const cmp = (x, y, ax, ay) => (ax < 5 || ay < 5 || x === y) ? 0 : x > y ? 1 : 2;
-  let h = `<tr><th>Zone (FGM/FGA, FG%, share of shots)</th><th style="color:var(--a)">${name(sides[0])}</th><th style="color:var(--b)">${name(sides[1])}</th></tr>`;
+  let h = `<tr><th>Zone (FGM/FGA, FG%, share of shots)</th><th style="color:var(--a)">${esc(sides[0].short)}</th><th style="color:var(--b)">${esc(sides[1].short)}</th></tr>`;
   h += row("All shots", `${A.fgm}/${A.fga} · ${pct(A.fgm, A.fga)}`, `${B.fgm}/${B.fga} · ${pct(B.fgm, B.fga)}`, cmp(A.fgm / A.fga, B.fgm / B.fga, A.fga, B.fga));
   h += row("eFG%", (100 * A.efg).toFixed(1) + "%", (100 * B.efg).toFixed(1) + "%", cmp(A.efg, B.efg, A.fga, B.fga));
   h += row("Points from FG", A.pts, B.pts, 0);
@@ -438,8 +521,67 @@ function drawCmp() {
     const a = A.z[z], b = B.z[z];
     h += row(z, `${a.m}/${a.a} · ${pct(a.m, a.a)} · ${pct(a.a, A.fga)}`, `${b.m}/${b.a} · ${pct(b.m, b.a)} · ${pct(b.a, B.fga)}`, cmp(a.m / a.a, b.m / b.a, a.a, b.a));
   });
-  $("zones").innerHTML = h;
+  $(zonesId).innerHTML = h;
 }
+function drawCmp() {
+  updateUrlCmp();
+  window._g = {};
+  const sides = ["a", "b"].map(k => {
+    const p = playerById[cs[k]];
+    $("w" + k).textContent = p ? scopeText(k) : "";
+    if (!p) return { k, empty: `Pick player ${k === "a" ? 1 : 2}`, list: [] };
+    const list = sideShots(k);
+    return { k, title: p.n, tag: p.t, short: p.n.split(" ").slice(-1)[0], list,
+             sub: cs.scope !== "game" ? new Set(list.map(s => s.g)).size + " games" : "" };
+  });
+  drawPair("cCourts", "zones", sides, cs.mode, cs.color);
+}
+
+// ---------- team view ----------
+async function teamShots(t, season) {
+  const key = t + "_" + season;
+  if (ts.cache[key]) return ts.cache[key];
+  const f = await getJSON(`data/teams/${key}.json`);
+  const rows = f.shots.map(r => Object.fromEntries(f.cols.map((c, i) => [c, r[i]])));
+  rows.forEach(s => s.p = f.players[s.pid]);
+  return ts.cache[key] = { players: f.players, shots: rows };
+}
+function fillTeams() {
+  const s = $("tSeason").value, list = ts.index.filter(r => r.s === s).map(r => r.t).sort();
+  for (const k of ["a", "b"]) {
+    const prev = ts[k];
+    $("t" + k).innerHTML = list.map(t => `<option>${t}</option>`).join("");
+    $("t" + k).value = list.includes(prev) ? prev : list[k === "a" ? 0 : 1] || list[0];
+    ts[k] = $("t" + k).value;
+  }
+}
+async function loadTeams() {
+  const s = $("tSeason").value;
+  await Promise.all(["a", "b"].map(async k => {
+    ts[k] = $("t" + k).value;
+    const d = await teamShots(ts[k], s);
+    const rows = Object.entries(d.players).map(([id, n]) => {
+      const mine = d.shots.filter(x => x.pid === id); return { id, n, a: mine.length, m: mine.filter(x => x.m).length };
+    }).sort((x, y) => y.a - x.a);
+    $("tp" + k).innerHTML = rows.map(r => `<label><input type="checkbox" value="${r.id}" ${ts.off[k].has(r.id) ? "" : "checked"}> ${esc(r.n)} <span class="hint">${r.m}/${r.a}</span></label>`).join("");
+    $("tp" + k).onchange = e => { e.target.checked ? ts.off[k].delete(e.target.value) : ts.off[k].add(e.target.value); drawTeams(); };
+  }));
+  drawTeams();
+}
+function drawTeams() {
+  window._g = {};
+  const s = $("tSeason").value;
+  const sides = ["a", "b"].map(k => {
+    const d = ts.cache[ts[k] + "_" + s]; if (!d) return { k, empty: "Loading…", list: [] };
+    const list = d.shots.filter(x => !ts.off[k].has(x.pid) && qOk(x.q, ts.q));
+    const out = ts.off[k].size ? ` · without ${ts.off[k].size} player${ts.off[k].size > 1 ? "s" : ""}` : "";
+    return { k, title: ts[k], tag: s, short: ts[k], list, sub: new Set(list.map(x => x.g)).size + " games" + out };
+  });
+  drawPair("tCourts", "tZones", sides, ts.mode, ts.color);
+  const q = new URLSearchParams({ view: "teams", season: s, a: ts.a, b: ts.b });
+  history.replaceState(null, "", "?" + q);
+}
+
 function updateUrlCmp() {
   const q = new URLSearchParams({ view: "compare", scope: cs.scope });
   if (cs.a) q.set("a", cs.a); if (cs.b) q.set("b", cs.b);
@@ -448,8 +590,8 @@ function updateUrlCmp() {
   history.replaceState(null, "", "?" + q);
 }
 function legend() {
-  if (!$("cmpView").classList.contains("hide")) return;
-  $("legDots").classList.remove("hide"); $("legHex").classList.add("hide");
+  if ($("gameView").classList.contains("hide")) return;
+  $("legDots").classList.remove("hide"); $("legHex").classList.add("hide"); $("legHeat").classList.add("hide");
 }
 
 // ---------- tooltip ----------
