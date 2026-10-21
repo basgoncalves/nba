@@ -3,7 +3,7 @@ name: Update shot map data
 # Page or build changes pushed to main only rebuild and publish.
 on:
   schedule:
-    - cron: "17 9,15 * * *"   # 11:17 and 17:17 Vienna summer time
+    - cron: "17 * * * *"   # hourly: new games appear quickly and the backfill grows step by step
   workflow_dispatch:
   push:
     branches: [main]
@@ -18,7 +18,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 345
+    timeout-minutes: 90
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -30,7 +30,7 @@ jobs:
       - name: Download new games
         if: github.event_name != 'push'
         working-directory: shotmap
-        env: { MAX_MINUTES: "290" }
+        env: { MAX_MINUTES: "40" }   # publish what we have after ~40 min; the next run continues
         run: python fetch.py
 
       - name: Save new game files
