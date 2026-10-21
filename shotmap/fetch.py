@@ -5,7 +5,7 @@ Writes (relative to this folder), add-only so git history stays small:
   raw/scanned_days.json        days already checked, so they are not re-scanned
 
 Each game file:
-  {"v": 3, "id", "date", "season", "type", "home", "away", "hs", "as",
+  {"v": 4, "id", "date", "season", "type", "home", "away", "hs", "as",
    "names": {playerId: [short, full]},
    "types": [shot type names],
    "shots": [[playerId, team(0=away,1=home), quarter, made, value, x, y, seconds, typeIndex, assisterId or ""], ...],
@@ -20,7 +20,7 @@ from datetime import date, timedelta
 FIRST_SEASON_START = date(2009, 10, 1)   # 2009-10 season onwards
 ESPN = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
 KEEP_TYPES = {2: "Regular", 3: "Playoffs", 5: "Play-in"}
-VERSION = 3
+VERSION = 4   # bump when the file layout changes: older files are downloaded again
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/130.0 Safari/537.36")
 MAX_MINUTES = float(os.environ.get("MAX_MINUTES", "300"))  # stop early; the next run continues
@@ -75,7 +75,8 @@ for season in os.listdir("raw"):
     d = os.path.join("raw", season)
     if os.path.isdir(d):
         for f in os.listdir(d):
-            have[f[:-5]] = season
+            if load_json(os.path.join(d, f), {}).get("v") == VERSION:
+                have[f[:-5]] = season
 
 scanned = set(load_json("raw/scanned_days.json", []))
 today = date.today()
