@@ -4,9 +4,10 @@ Usage: python build.py <site folder>
 Creates <site>/shotmap/ with index.html, raw/ (copied) and data/:
   data/games.json            [[id, date, season, type, home, away, homeScore, awayScore, shots], ...] newest first
   data/players.json          [{id, n, t, fga, seasons}, ...]
-  data/players/<id>.json     {id, n, types, shots: [[gameId, team, q, made, value, x, y, typeIndex], ...]}
+  data/players/<id>.json     {id, n, types, shots: [[gameId, team, q, made, value, x, y, typeIndex, assisted], ...],
+                                         ast: [[gameId, q, value, x, y], ...] made shots this player assisted}
   data/teams.json            [{t, s, fga, games}, ...]
-  data/teams/<team>_<season>.json  {team, season, players: {id: name}, shots: [[gameId, playerId, q, made, value, x, y], ...]}
+  data/teams/<team>_<season>.json  {team, season, players: {id: name}, shots: [[gameId, playerId, q, made, value, x, y, assisted], ...]}
 """
 import json, os, shutil, sys, time
 
@@ -33,19 +34,25 @@ for season in sorted(os.listdir(os.path.join(here, "raw"))):
         g = json.load(open(os.path.join(folder, f)))
         side = [g["away"], g["home"]]
         games.append([g["id"], g["date"][:16], g["season"], g["type"], g["home"], g["away"], g["hs"], g["as"], len(g["shots"])])
-        for pid, ti, q, m, v, x, y, e, di in g["shots"]:
+        for row in g["shots"]:
+            pid, ti, q, m, v, x, y, e, di = row[:9]
+            ast = row[9] if len(row) > 9 else ""
             t = side[ti]
             short, full = g["names"].get(pid, ["Unknown", "Unknown"])
-            p = players.setdefault(pid, {"id": pid, "n": full, "t": t, "last": "", "types": [], "tix": {}, "shots": []})
+            p = players.setdefault(pid, {"id": pid, "n": full, "t": t, "last": "", "types": [], "tix": {}, "shots": [], "ast": []})
             if g["date"] > p["last"]:
                 p["last"], p["t"], p["n"] = g["date"], t, full
             d = g["types"][di] if di < len(g["types"]) else ""
             if d not in p["tix"]:
                 p["tix"][d] = len(p["types"]); p["types"].append(d)
-            p["shots"].append([g["id"], t, q, m, v, x, y, p["tix"][d], g["date"]])
+            p["shots"].append([g["id"], t, q, m, v, x, y, p["tix"][d], 1 if ast else 0, g["date"]])
+            if ast:   # where this player's passes led to made shots
+                a = players.setdefault(ast, {"id": ast, "n": g["names"].get(ast, ["", "Unknown"])[1], "t": t, "last": "",
+                                             "types": [], "tix": {}, "shots": [], "ast": []})
+                a["ast"].append([g["id"], q, v, x, y, g["date"]])
             tm = teams.setdefault((t, g["season"]), {"team": t, "season": g["season"], "players": {}, "shots": []})
             tm["players"][pid] = full
-            tm["shots"].append([g["id"], pid, q, m, v, x, y, g["date"]])
+            tm["shots"].append([g["id"], pid, q, m, v, x, y, 1 if ast else 0, g["date"]])
 
 games.sort(key=lambda r: r[1], reverse=True)
 json.dump(games, open(os.path.join(data, "games.json"), "w"), separators=(",", ":"))
@@ -53,9 +60,11 @@ season_of = {r[0]: r[2] for r in games}
 
 index = []
 for p in players.values():
-    p["shots"].sort(key=lambda r: r[-1])
+    if not p["shots"]:
+        continue   # passed but never shot: skip
+    p["shots"].sort(key=lambda r: r[-1]); p["ast"].sort(key=lambda r: r[-1])
     rows = [r[:-1] for r in p["shots"]]
-    json.dump({"id": p["id"], "n": p["n"], "types": p["types"], "shots": rows},
+    json.dump({"id": p["id"], "n": p["n"], "types": p["types"], "shots": rows, "ast": [r[:-1] for r in p["ast"]]},
               open(os.path.join(data, "players", p["id"] + ".json"), "w"), separators=(",", ":"))
     index.append({"id": p["id"], "n": p["n"], "t": p["t"], "fga": len(rows),
                   "seasons": sorted({season_of[r[0]] for r in rows})})

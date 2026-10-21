@@ -158,7 +158,8 @@ const st = { q:"all", r:"all", sel:new Set(), t:2880, max:2880, tl:null, timer:n
 const cs = { scope:"season", q:"all", mode:"auto", color:"freq", a:null, b:null, cache:{} };
 const ts = { q:"all", mode:"heat", color:"freq", a:null, b:null, off:{ a:new Set(), b:new Set() }, cache:{}, index:[] };
 const MODES = [["auto","Auto"],["dots","Dots"],["hex","Hexagons"],["heat","Heat map"]];
-const COLORS = [["freq","Shot frequency"],["fg","FG%"]];
+const COLORS = [["freq","Shot frequency"],["fg","FG%"],["ast","Assisted %"]];
+const PCOLORS = COLORS.concat([["passes","Assists given"]]);
 
 // ---------- court drawing (NBA legacy coords: basket at 0,0, 1 unit = 0.1 ft) ----------
 const VB = "-252 88 504 384", Y = y => 422 - y;
@@ -229,10 +230,11 @@ function ramp(stops, p) {
 }
 function heatMarks(list, colorBy) {
   const C = 5, W = 100, H = 94, att = new Float32Array(W * H), made = new Float32Array(W * H);
+  if (colorBy === "ast") list = list.filter(s => s.m);   // share of made shots that were assisted
   list.filter(inCourt).forEach(s => {
     const gx = Math.floor((s.x + 250) / C), gy = Math.floor(Y(s.y) / C);
     if (gx < 0 || gx >= W || gy < 0 || gy >= H) return;
-    att[gy * W + gx]++; if (s.m) made[gy * W + gx]++;
+    att[gy * W + gx]++; if (colorBy === "ast" ? s.a : s.m) made[gy * W + gx]++;
   });
   const sig = list.length > 400 ? 3.2 : 4.5, A = blur(att, W, H, sig), M = blur(made, W, H, sig);
   let max = 0; for (const v of A) max = Math.max(max, v);
@@ -240,8 +242,10 @@ function heatMarks(list, colorBy) {
   const cx = cv.getContext("2d"), img = cx.createImageData(W, H);
   for (let i = 0; i < W * H; i++) {
     const d = max ? A[i] / max : 0; if (d < 0.02) continue;
-    const rgb = colorBy === "fg" ? ramp(JET, (M[i] / A[i] - 0.25) / 0.45) : ramp(JET, Math.pow(d, 0.55));
-    img.data.set([...rgb, Math.round(255 * Math.min(1, 0.25 + (colorBy === "fg" ? Math.pow(d, 0.5) : Math.pow(d, 0.35))) * 0.92)], i * 4);
+    const rgb = colorBy === "fg" ? ramp(JET, (M[i] / A[i] - 0.25) / 0.45)
+      : colorBy === "ast" ? ramp(JET, M[i] / A[i]) : ramp(JET, Math.pow(d, 0.55));
+    const ratio = colorBy === "fg" || colorBy === "ast";
+    img.data.set([...rgb, Math.round(255 * Math.min(1, 0.25 + (ratio ? Math.pow(d, 0.5) : Math.pow(d, 0.35))) * 0.92)], i * 4);
   }
   cx.putImageData(img, 0, 0);
   return `<image href="${cv.toDataURL()}" x="-250" y="0" width="500" height="470" preserveAspectRatio="none" style="filter:blur(2px)"/>`;
@@ -289,7 +293,7 @@ async function init() {
   chips("scopes", [["game","Per game"],["season","Season"],["career","Career"]], cs, "scope", () => { syncScope(); drawCmp(); });
   chips("cQuarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], cs, "q", drawCmp);
   chips("cMode", MODES, cs, "mode", drawCmp);
-  chips("cColor", COLORS, cs, "color", drawCmp);
+  chips("cColor", PCOLORS, cs, "color", drawCmp);
   chips("tQuarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], ts, "q", drawTeams);
   chips("tMode", MODES, ts, "mode", drawTeams);
   chips("tColor", COLORS, ts, "color", drawTeams);
@@ -417,8 +421,9 @@ function fillGames() {
 async function loadGame() {
   const g = gameById[$("game").value]; if (!g) return;
   const f = await getJSON(`raw/${g.season}/${g.id}.json`), side = [f.away, f.home];
-  shots = f.shots.map(([pid, ti, q, m, v, x, y, e, di]) => ({
-    pid, p: (f.names[pid] || ["Unknown"])[0], t: side[ti], q, m, v, x, y, e, c: clockOf(e), d: f.types[di] || "" }));
+  shots = f.shots.map(([pid, ti, q, m, v, x, y, e, di, ast]) => ({
+    pid, p: (f.names[pid] || ["Unknown"])[0], t: side[ti], q, m, v, x, y, e, c: clockOf(e), d: f.types[di] || "",
+    a: ast ? 1 : 0, ap: ast ? (f.names[ast] || ["?"])[0] : "" }));
   st.tl = f.score && f.score.length > 1 ? f.score : null;
   initClock();
   if (!shots.length) $("scoreNote").textContent = "ESPN has no shot locations for this game";
@@ -463,8 +468,10 @@ function findPlayer(v) {
 async function playerShots(id) {
   if (cs.cache[id]) return cs.cache[id];
   const f = await getJSON(`data/players/${id}.json`);
-  return cs.cache[id] = f.shots.map(([g, t, q, m, v, x, y, di]) =>
-    ({ g, s: (gameById[g] || {}).season, t, q, m, v, x, y, d: f.types[di] || "", p: f.n }));
+  const list = f.shots.map(([g, t, q, m, v, x, y, di, a]) =>
+    ({ g, s: (gameById[g] || {}).season, t, q, m, v, x, y, d: f.types[di] || "", p: f.n, a }));
+  list.passes = (f.ast || []).map(([g, q, v, x, y]) => ({ g, s: (gameById[g] || {}).season, q, v, x, y, m: 1, a: 1, d: "Assisted shot", p: f.n }));
+  return cs.cache[id] = list;
 }
 async function setSide(k, id, silent) {
   const p = playerById[id]; if (!p) return;
@@ -503,7 +510,7 @@ function defaultCompare() {
 }
 function sideShots(k) {
   if (!cs[k]) return [];
-  let list = cs.cache[cs[k]];
+  let list = cs.color === "passes" && (cs.mode === "heat" || cs.mode === "auto") ? cs.cache[cs[k]].passes : cs.cache[cs[k]];
   if (cs.scope === "game") list = list.filter(s => s.g === $("g" + k).value);
   if (cs.scope === "season") list = list.filter(s => s.s === $("cSeason").value);
   return list.filter(s => qOk(s.q, cs.q));
@@ -516,21 +523,24 @@ function scopeText(k) {
 function drawPair(courtsId, zonesId, sides, mode, colorBy) {
   const big = Math.max(0, ...sides.map(s => s.list.length));
   const kind = mode === "auto" ? (big > 150 ? "heat" : "dots") : mode;
-  $(courtsId).innerHTML = sides.map(({ k, title, tag, sub, list, empty }) => {
+  $(courtsId).innerHTML = sides.map(({ k, title, tag, sub, list, empty, stat }) => {
     if (empty) return `<div class="court ${k}"><h3 class="hint">${empty}</h3><svg viewBox="${VB}">${courtLines()}</svg></div>`;
     const S = summary(list); window._g[courtsId + k] = list.filter(inCourt);
     const marks = !list.length ? `<text x="0" y="300" text-anchor="middle" fill="var(--dim)" font-size="22">No shots</text>`
       : kind === "heat" ? heatMarks(list, colorBy) : kind === "hex" ? hexMarks(list, courtsId + k) : dotMarks(list, courtsId + k);
     const lines = kind === "heat" ? courtLines().replaceAll('stroke="var(--line)"', 'stroke="#ffffff66"') : courtLines();
     return `<div class="court ${k}"><h3>${esc(title)} <span class="hint">${tag || ""}</span></h3>
-      <div class="stat">FG ${S.fgm}/${S.fga} (${pct(S.fgm, S.fga)}) · 3PT ${S.m3}/${S.a3} (${pct(S.m3, S.a3)}) · eFG ${(100 * S.efg).toFixed(1)}%${sub ? " · " + sub : ""}</div>
+      <div class="stat">${stat || `FG ${S.fgm}/${S.fga} (${pct(S.fgm, S.fga)}) · 3PT ${S.m3}/${S.a3} (${pct(S.m3, S.a3)}) · eFG ${(100 * S.efg).toFixed(1)}%`}${sub ? " · " + sub : ""}</div>
       <svg viewBox="${VB}">${kind === "heat" ? marks + lines : lines + marks}</svg></div>`;
   }).join("");
   document.querySelectorAll(".heatOnly").forEach(el => el.classList.toggle("hide", kind !== "heat"));
   $("legDots").classList.toggle("hide", kind !== "dots"); $("legHex").classList.toggle("hide", kind !== "hex");
   $("legHeat").classList.toggle("hide", kind !== "heat");
-  $("legHeatTxt").textContent = colorBy === "fg" ? "FG% in each area (faint = few shots)" : "Where shots come from";
-  $("legHeatEnds").textContent = colorBy === "fg" ? "25% → 70%" : "rare → most";
+  const LEG = { fg: ["FG% in each area (faint = few shots)", "25% → 70%"],
+                ast: ["Share of made shots that were assisted", "0% → 100%"],
+                passes: ["Where this player's passes led to made shots", "rare → most"],
+                freq: ["Where shots come from", "rare → most"] }[colorBy] || ["Where shots come from", "rare → most"];
+  $("legHeatTxt").textContent = LEG[0]; $("legHeatEnds").textContent = LEG[1];
   const [A, B] = sides.map(s => s.empty ? null : summary(s.list));
   if (!A || !B) { $(zonesId).innerHTML = ""; return; }
   const row = (label, a, b, better) => `<tr><td>${label}</td><td class="${better === 1 ? "better" : ""}">${a}</td><td class="${better === 2 ? "better" : ""}">${b}</td></tr>`;
@@ -553,10 +563,13 @@ function drawCmp() {
     $("w" + k).textContent = p ? scopeText(k) : "";
     if (!p) return { k, empty: `Pick player ${k === "a" ? 1 : 2}`, list: [] };
     const list = sideShots(k);
-    return { k, title: p.n, tag: p.t, short: p.n.split(" ").slice(-1)[0], list,
+    const passes = cs.color === "passes" && (cs.mode === "heat" || cs.mode === "auto");
+    const stat = passes ? `${list.length} assists · ${list.filter(s => s.v === 3).length} to 3PT` : "";
+    return { k, title: p.n, tag: p.t, short: p.n.split(" ").slice(-1)[0], list, stat,
              sub: cs.scope !== "game" ? new Set(list.map(s => s.g)).size + " games" : "" };
   });
   drawPair("cCourts", "zones", sides, cs.mode, cs.color);
+  if (cs.color === "passes" && cs.mode !== "dots" && cs.mode !== "hex") $("zones").innerHTML = "";
 }
 
 // ---------- team view ----------
@@ -564,7 +577,7 @@ async function teamShots(t, season) {
   const key = t + "_" + season;
   if (ts.cache[key]) return ts.cache[key];
   const f = await getJSON(`data/teams/${key}.json`);
-  const rows = f.shots.map(([g, pid, q, m, v, x, y]) => ({ g, pid, q, m, v, x, y, p: f.players[pid] }));
+  const rows = f.shots.map(([g, pid, q, m, v, x, y, a]) => ({ g, pid, q, m, v, x, y, a, p: f.players[pid] }));
   return ts.cache[key] = { players: f.players, shots: rows };
 }
 function fillTeams() {
@@ -623,7 +636,7 @@ document.addEventListener("pointermove", e => {
     const s = window._g[t.k.replace(/^g:/, "")] ? window._g[t.k.replace(/^g:/, "")][t.i] : window._g[t.k][t.i];
     if (!s) { tip.style.display = "none"; return; }
     const g = gameById[s.g];
-    tip.innerHTML = `<b>${esc(s.p || (playerById[cs[t.k.slice(2)]] || {}).n || "")}</b> · Q${s.q > 4 ? "OT" + (s.q - 4) : s.q} ${s.c || ""}<br>${s.v}PT ${esc(s.d || "")} · ${s.m ? "Made" : "Missed"} · ${Math.round(Math.hypot(s.x, s.y) / 10)} ft${g ? "<br>" + gameLabel(g) : ""}`;
+    tip.innerHTML = `<b>${esc(s.p || (playerById[cs[t.k.slice(2)]] || {}).n || "")}</b> · Q${s.q > 4 ? "OT" + (s.q - 4) : s.q} ${s.c || ""}<br>${s.v}PT ${esc(s.d || "")} · ${s.m ? "Made" : "Missed"}${s.ap ? " (ast " + esc(s.ap) + ")" : ""} · ${Math.round(Math.hypot(s.x, s.y) / 10)} ft${g ? "<br>" + gameLabel(g) : ""}`;
   } else { tip.style.display = "none"; return; }
   tip.style.display = "block";
   tip.style.left = Math.min(e.clientX + 12, innerWidth - 220) + "px"; tip.style.top = (e.clientY + 12) + "px";

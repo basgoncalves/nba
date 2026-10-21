@@ -8,7 +8,7 @@ Each game file:
   {"v": 3, "id", "date", "season", "type", "home", "away", "hs", "as",
    "names": {playerId: [short, full]},
    "types": [shot type names],
-   "shots": [[playerId, team(0=away,1=home), quarter, made, value, x, y, seconds, typeIndex], ...],
+   "shots": [[playerId, team(0=away,1=home), quarter, made, value, x, y, seconds, typeIndex, assisterId or ""], ...],
    "score": [[seconds, awayScore, homeScore], ...]}
 x/y: tenths of a foot from the basket. seconds: elapsed since tip-off.
 
@@ -146,12 +146,14 @@ def download(g):
         x, y = co.get("x"), co.get("y")
         if x is None or y is None or abs(x) > 200 or abs(y) > 200 or (x == 0 and y == 0):
             continue
-        pid = (p.get("participants") or [{}])[0].get("athlete", {}).get("id")
+        parts = p.get("participants") or [{}]
+        pid = parts[0].get("athlete", {}).get("id")
+        ast = parts[1].get("athlete", {}).get("id", "") if len(parts) > 1 and p.get("scoringPlay") else ""
         if not pid:
             continue
         raw.append({"x": x, "y": y, "txt": txt, "pid": pid, "t": side.get(p.get("team", {}).get("id"), 0),
                     "q": q, "m": 1 if p.get("scoringPlay") else 0, "v": 3 if "three point" in txt else 2,
-                    "e": e, "d": p.get("type", {}).get("text", "")})
+                    "e": e, "d": p.get("type", {}).get("text", ""), "a": ast})
     shots, types = [], []
     if len(raw) >= 40:   # games without usable coordinates are kept, but with no shots
         near = [r for r in raw if any(k in r["txt"] for k in ("dunk", "layup", "tip"))] or raw
@@ -162,8 +164,8 @@ def download(g):
             if r["d"] not in types:
                 types.append(r["d"])
             shots.append([r["pid"], r["t"], r["q"], r["m"], r["v"],
-                          round((r["x"] - rx) * 10), round((r["y"] - ry) * 10 * sign), r["e"], types.index(r["d"])])
-    used = {r[0] for r in shots}
+                          round((r["x"] - rx) * 10), round((r["y"] - ry) * 10 * sign), r["e"], types.index(r["d"]), r["a"]])
+    used = {r[0] for r in shots} | {r[9] for r in shots if r[9]}
     return {"v": VERSION, **g, "names": {k: v for k, v in names.items() if k in used},
             "types": types, "shots": shots, "score": score}
 
