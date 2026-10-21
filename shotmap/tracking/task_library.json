@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "status": "placeholder",
+  "note": "PLACEHOLDER coefficients: rough order-of-magnitude values in the range reported in the running/cutting literature, NOT BioScout simulations. Replace each phase with peak values from BioScout (Scale, IK, ID, SO, JRA) runs of lab trials of that task, scaled per body weight. Every value is a per-step peak: value = c0 + cv * speed (m/s) + ca * |acceleration| (m/s2).",
+  "units": "BW = multiples of body weight; strain in % of optimal fibre length; directions are unit vectors",
+  "frames": {
+    "knee": "tibia frame: [anterior, superior (compressive axis), lateral]",
+    "hip": "pelvis frame: [anterior, superior, lateral], force applied by pelvis on femoral head"
+  },
+  "outputs": {
+    "knee_med": {"label": "Knee medial contact force", "unit": "BW"},
+    "knee_lat": {"label": "Knee lateral contact force", "unit": "BW"},
+    "acl": {"label": "ACL force (proxy: anterior tibial shear)", "unit": "BW"},
+    "ham_force": {"label": "Hamstring force (BFlh + SM + ST)", "unit": "BW"},
+    "ham_strain": {"label": "Hamstring peak strain (BFlh)", "unit": "%"},
+    "hip": {"label": "Hip contact force", "unit": "BW"}
+  },
+  "phase_rules": {
+    "still": "speed < 0.5 m/s (no steps)",
+    "walk": "0.5-2 m/s", "jog": "2-4 m/s", "run": "4-5.5 m/s", "sprint": "> 5.5 m/s",
+    "accel": "acceleration > 2.5 m/s2", "decel": "acceleration < -2.5 m/s2",
+    "cut": "speed > 2.5 m/s and heading change > 120 deg/s",
+    "priority": "cut > decel > accel > speed band"
+  },
+  "step_rate": {"walk": 1.8, "run_c0": 2.4, "run_cv": 0.15, "unit": "steps per second; running = run_c0 + run_cv * speed"},
+  "phases": {
+    "walk": {
+      "knee_med": [1.6, 0.25, 0], "knee_lat": [0.9, 0.15, 0], "acl": [0.08, 0.03, 0],
+      "ham_force": [0.3, 0.12, 0], "ham_strain": [2.0, 1.0, 0], "hip": [2.6, 0.5, 0],
+      "knee_dir": [0.10, 0.99, -0.05], "hip_dir": [0.25, 0.95, -0.20]
+    },
+    "jog": {
+      "knee_med": [2.4, 0.75, 0], "knee_lat": [1.4, 0.45, 0], "acl": [0.12, 0.05, 0],
+      "ham_force": [0.5, 0.25, 0], "ham_strain": [3.0, 1.2, 0], "hip": [3.0, 0.75, 0],
+      "knee_dir": [0.15, 0.98, -0.06], "hip_dir": [0.30, 0.93, -0.22]
+    },
+    "run": {
+      "knee_med": [2.6, 0.7, 0], "knee_lat": [1.5, 0.45, 0], "acl": [0.14, 0.05, 0],
+      "ham_force": [0.4, 0.3, 0], "ham_strain": [3.5, 1.3, 0], "hip": [3.2, 0.75, 0],
+      "knee_dir": [0.17, 0.98, -0.07], "hip_dir": [0.32, 0.92, -0.22]
+    },
+    "sprint": {
+      "knee_med": [2.8, 0.65, 0], "knee_lat": [1.6, 0.4, 0], "acl": [0.15, 0.05, 0],
+      "ham_force": [0.2, 0.4, 0], "ham_strain": [3.0, 1.5, 0], "hip": [3.4, 0.75, 0],
+      "knee_dir": [0.18, 0.98, -0.07], "hip_dir": [0.34, 0.91, -0.22]
+    },
+    "accel": {
+      "knee_med": [2.8, 0.5, 0.25], "knee_lat": [1.6, 0.3, 0.15], "acl": [0.15, 0.04, 0.03],
+      "ham_force": [0.5, 0.25, 0.15], "ham_strain": [3.0, 1.0, 0.3], "hip": [3.5, 0.6, 0.3],
+      "knee_dir": [0.12, 0.99, -0.06], "hip_dir": [0.38, 0.89, -0.24]
+    },
+    "decel": {
+      "knee_med": [3.0, 0.6, 0.45], "knee_lat": [1.8, 0.35, 0.3], "acl": [0.25, 0.05, 0.08],
+      "ham_force": [0.6, 0.2, 0.12], "ham_strain": [3.5, 0.9, 0.4], "hip": [3.6, 0.6, 0.4],
+      "knee_dir": [0.28, 0.95, -0.10], "hip_dir": [0.20, 0.94, -0.26]
+    },
+    "cut": {
+      "knee_med": [2.6, 0.6, 0.3], "knee_lat": [2.2, 0.5, 0.3], "acl": [0.35, 0.08, 0.08],
+      "ham_force": [0.7, 0.2, 0.1], "ham_strain": [3.5, 1.0, 0.3], "hip": [3.8, 0.6, 0.3],
+      "knee_dir": [0.22, 0.94, -0.25], "hip_dir": [0.25, 0.90, -0.35]
+    }
+  },
+  "moment_contributions": {
+    "note": "Share of each joint moment produced by each muscle group at the peak of that moment (placeholder).",
+    "walk":   {"hip_ext": {"gluteus maximus": 0.35, "hamstrings": 0.45, "adductor magnus": 0.20},
+               "knee_ext": {"vasti": 0.85, "rectus femoris": 0.15},
+               "knee_flex": {"hamstrings": 0.55, "gastrocnemius": 0.45},
+               "ankle_pf": {"soleus": 0.65, "gastrocnemius": 0.35}},
+    "jog":    {"hip_ext": {"gluteus maximus": 0.45, "hamstrings": 0.40, "adductor magnus": 0.15},
+               "knee_ext": {"vasti": 0.82, "rectus femoris": 0.18},
+               "knee_flex": {"hamstrings": 0.65, "gastrocnemius": 0.35},
+               "ankle_pf": {"soleus": 0.70, "gastrocnemius": 0.30}},
+    "run":    {"hip_ext": {"gluteus maximus": 0.45, "hamstrings": 0.42, "adductor magnus": 0.13},
+               "knee_ext": {"vasti": 0.80, "rectus femoris": 0.20},
+               "knee_flex": {"hamstrings": 0.72, "gastrocnemius": 0.28},
+               "ankle_pf": {"soleus": 0.68, "gastrocnemius": 0.32}},
+    "sprint": {"hip_ext": {"gluteus maximus": 0.40, "hamstrings": 0.50, "adductor magnus": 0.10},
+               "knee_ext": {"vasti": 0.75, "rectus femoris": 0.25},
+               "knee_flex": {"hamstrings": 0.80, "gastrocnemius": 0.20},
+               "ankle_pf": {"soleus": 0.62, "gastrocnemius": 0.38}},
+    "accel":  {"hip_ext": {"gluteus maximus": 0.50, "hamstrings": 0.38, "adductor magnus": 0.12},
+               "knee_ext": {"vasti": 0.80, "rectus femoris": 0.20},
+               "knee_flex": {"hamstrings": 0.70, "gastrocnemius": 0.30},
+               "ankle_pf": {"soleus": 0.60, "gastrocnemius": 0.40}},
+    "decel":  {"hip_ext": {"gluteus maximus": 0.55, "hamstrings": 0.30, "adductor magnus": 0.15},
+               "knee_ext": {"vasti": 0.88, "rectus femoris": 0.12},
+               "knee_flex": {"hamstrings": 0.60, "gastrocnemius": 0.40},
+               "ankle_pf": {"soleus": 0.70, "gastrocnemius": 0.30}},
+    "cut":    {"hip_ext": {"gluteus maximus": 0.52, "hamstrings": 0.33, "adductor magnus": 0.15},
+               "knee_ext": {"vasti": 0.85, "rectus femoris": 0.15},
+               "knee_flex": {"hamstrings": 0.62, "gastrocnemius": 0.38},
+               "ankle_pf": {"soleus": 0.66, "gastrocnemius": 0.34}}
+  }
+}

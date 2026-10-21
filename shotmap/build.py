@@ -25,6 +25,13 @@ if os.path.isdir(os.path.join(out, "raw")):
 os.makedirs(os.path.join(here, "raw"), exist_ok=True)
 shutil.copytree(os.path.join(here, "raw"), os.path.join(out, "raw"))
 
+# tracking-based player load (derived values only, never raw positions)
+load_src = os.path.join(here, "tracking", "load")
+if os.path.isdir(load_src):
+    if os.path.isdir(os.path.join(out, "load")):
+        shutil.rmtree(os.path.join(out, "load"))
+    shutil.copytree(load_src, os.path.join(out, "load"))
+
 games, players, teams = [], {}, {}
 for season in sorted(os.listdir(os.path.join(here, "raw"))):
     folder = os.path.join(here, "raw", season)

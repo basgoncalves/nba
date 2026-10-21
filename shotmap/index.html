@@ -74,13 +74,26 @@
   #tip { position:fixed; pointer-events:none; background:#000d; padding:6px 8px; border-radius:6px; font-size:12px; display:none; z-index:5; }
   footer { text-align:center; color:var(--dim); font-size:12px; margin-top:24px; }
   .hide { display:none !important; }
+  .warn { background:#3a2a0a; color:#ffd58a; border:1px solid #6b4e12; border-radius:10px; padding:10px 12px; font-size:13px; margin-bottom:10px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-top:12px; }
+  .card { background:var(--panel); border-radius:12px; padding:10px 12px; border-top:3px solid var(--a); }
+  .card.b { border-top-color:var(--b); }
+  .card .big { font-size:22px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .card .lab { color:var(--dim); font-size:12px; }
+  .panel { background:var(--panel); border-radius:12px; padding:10px 12px; margin-top:12px; }
+  .panel h4 { margin:0 0 8px; font-size:14px; }
+  .panel svg { width:100%; height:auto; display:block; }
+  .bar { display:flex; height:16px; border-radius:4px; overflow:hidden; margin:3px 0 8px; }
+  .bar span { display:block; height:100%; }
+  .mlab { font-size:12px; color:var(--dim); display:flex; flex-wrap:wrap; gap:8px; }
+  .dirs { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
   @media (max-width:520px) { .two { grid-template-columns:1fr; } }
 </style>
 </head>
 <body>
 <header><h1>NBA Shot Maps</h1><div class="sub" id="sub">Loading…</div></header>
 <div class="wrap">
-  <div class="tabs"><button id="tabGame" class="on">Game</button><button id="tabCmp">Compare players</button><button id="tabTeam">Compare teams</button></div>
+  <div class="tabs"><button id="tabGame" class="on">Game</button><button id="tabCmp">Compare players</button><button id="tabTeam">Compare teams</button><button id="tabLoad">Player load</button></div>
 
   <!-- ============ GAME VIEW ============ -->
   <section id="gameView">
@@ -142,6 +155,24 @@
     </div>
     <div class="courts" id="tCourts"></div>
     <table class="zones" id="tZones"></table>
+  </section>
+
+  <!-- ============ LOAD VIEW ============ -->
+  <section id="loadView" class="hide">
+    <div class="warn" id="lWarn"></div>
+    <div class="controls">
+      <select id="lGame"></select>
+      <div class="pick"><select id="lpa"></select><select id="lpb"></select></div>
+      <div class="row"><span class="lbl">Load</span><div id="lOut" class="row"></div></div>
+    </div>
+    <div class="cards" id="lCards"></div>
+    <div class="panel"><h4>Load over the game <span class="hint">(per 10 s of game clock · dashed = cumulative)</span></h4><div id="lTime"></div></div>
+    <div class="panel"><h4>Per quarter</h4><div id="lQ"></div></div>
+    <div class="courts" id="lCourts"></div>
+    <div class="panel"><h4>Force direction <span class="hint">(load-weighted mean)</span></h4><div id="lDir" class="dirs"></div></div>
+    <div class="panel"><h4>Muscle contributions to joint moments</h4><div id="lMus"></div></div>
+    <div class="panel"><h4>Movement mix (steps)</h4><div id="lPh"></div></div>
+    <div class="panel"><h4>Highest ACL-load moments</h4><table class="zones" id="lTop"></table></div>
   </section>
 
   <div class="legend" id="legDots"><span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="var(--made)"/></svg> Made</span><span><svg width="12" height="12"><path d="M2 2L10 10M10 2L2 10" stroke="var(--miss)" stroke-width="2"/></svg> Missed</span></div>
@@ -277,6 +308,10 @@ async function init() {
       ({ id, date: date + "Z", season, type, home, away, hs, as, n }));
   } catch { games = []; }
   try { players = await getJSON("data/players.json"); } catch { players = []; }
+  await initLoad();
+  $("tabLoad").onclick = async () => { show("load"); if (!ls.data) await loadLoadGame(); };
+  $("tabGame").onclick = () => show("game");
+  if (new URLSearchParams(location.search).get("view") === "load" && ls.games.length) { show("load", true); await loadLoadGame(); }
   if (!games.length) { $("sub").textContent = "No games yet — run the “Update shot map data” action."; return; }
   const seasonOf = d => { const t = new Date(d), y = t.getUTCFullYear() + (t.getUTCMonth() >= 8 ? 1 : 0); return `${y - 1}-${String(y).slice(2)}`; };
   games.forEach(g => { g.season = g.season || seasonOf(g.date); gameById[g.id] = g; });
@@ -355,10 +390,13 @@ function show(v, silent) {
   $("gameView").classList.toggle("hide", v !== "game");
   $("cmpView").classList.toggle("hide", v !== "cmp");
   $("teamView").classList.toggle("hide", v !== "team");
+  $("loadView").classList.toggle("hide", v !== "load");
+  $("tabLoad").classList.toggle("on", v === "load");
+  document.querySelectorAll(".legend").forEach(el => el.style.display = v === "load" ? "none" : "");
   $("tabGame").classList.toggle("on", v === "game");
   $("tabCmp").classList.toggle("on", v === "cmp");
   $("tabTeam").classList.toggle("on", v === "team");
-  if (!silent && v !== "team") v === "game" ? updateUrlGame() : updateUrlCmp();
+  if (!silent && v !== "team" && v !== "load") v === "game" ? updateUrlGame() : updateUrlCmp();
   legend();
 }
 
@@ -626,6 +664,107 @@ function updateUrlCmp() {
 function legend() {
   if ($("gameView").classList.contains("hide")) return;
   $("legDots").classList.remove("hide"); $("legHex").classList.add("hide"); $("legHeat").classList.add("hide");
+}
+
+// ---------- player load view ----------
+const ls = { out: "knee_med", games: [], data: null, a: null, b: null };
+const MUS_COL = ["#5aa9ff", "#ff8a3d", "#3ddc84", "#f5e04a", "#c77dff", "#ff4b6e"];
+async function initLoad() {
+  try { ls.games = await getJSON("load/index.json"); } catch { ls.games = []; }
+  if (!ls.games.length) { $("tabLoad").disabled = true; $("tabLoad").title = "No tracking games processed yet"; return; }
+  $("lGame").innerHTML = ls.games.map(g => `<option value="${g.id}">${new Date(g.date).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })} · ${g.away} @ ${g.home} (2015–16 tracking)</option>`).join("");
+  $("lGame").onchange = loadLoadGame;
+  $("lpa").onchange = () => { ls.a = $("lpa").value; drawLoad(); };
+  $("lpb").onchange = () => { ls.b = $("lpb").value; drawLoad(); };
+}
+async function loadLoadGame() {
+  ls.data = await getJSON(`load/${$("lGame").value}.json`);
+  const L = ls.data, ps = Object.entries(L.players).sort((x, y) => y[1].steps - x[1].steps);
+  const opts = ps.map(([id, p]) => `<option value="${id}">${esc(p.n)} (${p.t})</option>`).join("");
+  $("lpa").innerHTML = opts; $("lpb").innerHTML = `<option value="">— compare with… —</option>` + opts;
+  ls.a = ps[0][0]; ls.b = ""; $("lpa").value = ls.a; $("lpb").value = "";
+  chips("lOut", Object.entries(L.outputs).map(([k, o]) => [k, o.label.replace(/ \(.*\)/, "").replace("Knee ", "Knee ").replace(" contact force", "")]), ls, "out", drawLoad);
+  $("lWarn").innerHTML = L.library.status === "placeholder"
+    ? `<b>Model estimates with placeholder coefficients.</b> Movement (speed, acceleration, cuts, steps) comes from SportVU tracking; the load per step comes from a task library that still uses rough literature-range values, not BioScout simulations. Use for relative comparisons only. Jumps and landings are not included yet.`
+    : `Loads estimated with BioScout task library v${L.library.version}.`;
+  drawLoad();
+}
+function drawLoad() {
+  const L = ls.data; if (!L) return;
+  const sides = [["a", ls.a], ["b", ls.b]].filter(([, id]) => id && L.players[id]).map(([k, id]) => ({ k, p: L.players[id] }));
+  const o = L.outputs[ls.out], u = o.unit, isStrain = u === "%";
+  const col = k => k === "a" ? "var(--a)" : "var(--b)";
+  // cards
+  $("lCards").innerHTML = sides.map(({ k, p }) => `
+    <div class="card ${k}"><div class="lab">${esc(p.n)} · ${p.t}</div>
+      <div class="big">${isStrain ? p.max[ls.out].toFixed(1) + "%" : Math.round(p.sum[ls.out]).toLocaleString() + " " + u}</div>
+      <div class="lab">${isStrain ? "peak " + o.label.toLowerCase() : "cumulative " + o.label.toLowerCase()}</div>
+      <div class="lab">peak per step ${p.max[ls.out].toFixed(2)} ${u} · ${p.steps.toLocaleString()} steps · ${isStrain ? "" : (p.sum[ls.out] / p.steps).toFixed(2) + " " + u + "/step"}</div></div>`).join("");
+  // timeline
+  const nb = Math.ceil(Math.max(2880, ...sides.flatMap(({ p }) => Object.keys(p.bins).map(b => (+b + 1) * L.bin))) / L.bin);
+  const W = 700, H = 200, pad = 30;
+  const series = sides.map(({ k, p }) => { const v = Array.from({ length: nb }, (_, i) => (p.bins[i] || {})[isStrain ? ls.out + "_max" : ls.out] || 0); return { k, v }; });
+  const vmax = Math.max(1e-6, ...series.flatMap(s => s.v));
+  const cum = series.map(s => { let c = 0; return s.v.map(x => c += x); });
+  const cmax = Math.max(1e-6, ...cum.map(c => c.at(-1)));
+  const X = i => pad + (W - pad - 8) * i / (nb - 1), Yv = v => H - 22 - (H - 40) * v / vmax, Yc = v => H - 22 - (H - 40) * v / cmax;
+  let svg = `<svg viewBox="0 0 ${W} ${H}">`;
+  for (let q = 1; q <= 4; q++) { const x = X(q * 72); svg += `<line x1="${x}" y1="10" x2="${x}" y2="${H - 22}" stroke="var(--line)" stroke-dasharray="3 3"/><text x="${X((q - 1) * 72 + 36)}" y="${H - 6}" fill="var(--dim)" font-size="11" text-anchor="middle">Q${q}</text>`; }
+  series.forEach((s, j) => {
+    svg += `<path d="${s.v.map((v, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Yv(v).toFixed(1)).join("")}" fill="none" stroke="${col(s.k)}" stroke-width="1.6" opacity=".9"/>`;
+    if (!isStrain) svg += `<path d="${cum[j].map((v, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Yc(v).toFixed(1)).join("")}" fill="none" stroke="${col(s.k)}" stroke-width="2" stroke-dasharray="6 4"/>`;
+  });
+  svg += `<text x="4" y="14" fill="var(--dim)" font-size="11">${isStrain ? "peak %" : u + " per 10 s"}</text></svg>`;
+  $("lTime").innerHTML = svg;
+  // per quarter bars
+  const qs = ["1", "2", "3", "4"], qv = sides.map(({ k, p }) => ({ k, v: qs.map(q => p.q[q] ? (isStrain ? p.q[q].max[ls.out] : p.q[q].sum[ls.out]) : 0) }));
+  const qm = Math.max(1e-6, ...qv.flatMap(s => s.v)), bw = 600 / 4;
+  $("lQ").innerHTML = `<svg viewBox="0 0 640 150">` + qs.map((q, i) => qv.map((s, j) => {
+    const h = 110 * s.v[i] / qm, x = 30 + i * bw + j * (bw / 2.6) + 12;
+    return `<rect x="${x}" y="${120 - h}" width="${bw / 2.8}" height="${h}" rx="3" fill="${col(s.k)}"/><text x="${x + bw / 5.6}" y="${116 - h}" fill="var(--text)" font-size="11" text-anchor="middle">${isStrain ? s.v[i].toFixed(1) : Math.round(s.v[i])}</text>`;
+  }).join("") + `<text x="${30 + i * bw + bw / 2.4}" y="140" fill="var(--dim)" font-size="12" text-anchor="middle">Q${q}</text>`).join("") + `</svg>`;
+  // court maps
+  const [cw, ch] = L.grid;
+  $("lCourts").innerHTML = sides.map(({ k, p }) => {
+    const g = p.grid[ls.out], up = 4, Wc = cw * up, Hc = ch * up, raw = new Float32Array(Wc * Hc);
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) raw[(ch - 1 - y) * up * Wc + x * up + Math.floor(up / 2) * Wc + Math.floor(up / 2)] = g[y * cw + x];
+    const A = blur(raw, Wc, Hc, 3.2); let mx = 0; for (const v of A) mx = Math.max(mx, v);
+    const cv = document.createElement("canvas"); cv.width = Wc; cv.height = Hc; const cx = cv.getContext("2d"), img = cx.createImageData(Wc, Hc);
+    for (let i = 0; i < A.length; i++) { const d = mx ? A[i] / mx : 0; if (d < 0.03) continue; img.data.set([...ramp(JET, Math.pow(d, 0.6)), Math.round(255 * Math.min(1, 0.3 + d))], i * 4); }
+    cx.putImageData(img, 0, 0);
+    const s = 'stroke="#ffffff88" stroke-width=".08" fill="none"';
+    return `<div class="court ${k}"><h3>${esc(p.n)} <span class="hint">where ${esc(o.label.toLowerCase())} happens</span></h3>
+      <svg viewBox="-0.3 -1.6 29.25 17.1"><image href="${cv.toDataURL()}" x="0" y="0" width="${cw}" height="${ch}" preserveAspectRatio="none" style="filter:blur(.6px)"/>
+      <rect x="0" y="0" width="28.65" height="15.24" ${s}/><line x1="14.325" y1="0" x2="14.325" y2="15.24" ${s}/><circle cx="14.325" cy="7.62" r="1.83" ${s}/>
+      <rect x="0" y="5.18" width="5.79" height="4.88" ${s}/><rect x="22.86" y="5.18" width="5.79" height="4.88" ${s}/>
+      <path d="M0 0.9 L4.27 0.9 A7.24 7.24 0 0 1 4.27 14.34 L0 14.34" ${s}/><path d="M28.65 0.9 L24.38 0.9 A7.24 7.24 0 0 0 24.38 14.34 L28.65 14.34" ${s}/></svg></div>`;
+  }).join("");
+  // directions
+  const arrow = (v, label, k) => {
+    const ang = Math.atan2(v[0], v[1]) * 180 / Math.PI, fr = Math.atan2(v[2], v[1]) * 180 / Math.PI;
+    const ax = 60 + 45 * v[0], ay = 60 - 45 * v[1], bx = 60 + 45 * v[2], by = 60 - 45 * v[1];
+    return `<div><div class="hint">${label}</div><svg viewBox="0 0 240 125">
+      <text x="60" y="122" fill="var(--dim)" font-size="10" text-anchor="middle">sagittal (ant →)</text><text x="180" y="122" fill="var(--dim)" font-size="10" text-anchor="middle">frontal (lat →)</text>
+      <circle cx="60" cy="60" r="46" stroke="var(--line)" fill="none"/><circle cx="180" cy="60" r="46" stroke="var(--line)" fill="none"/>
+      <line x1="60" y1="60" x2="${ax}" y2="${ay}" stroke="${col(k)}" stroke-width="3"/><line x1="180" y1="60" x2="${120 + bx}" y2="${by}" stroke="${col(k)}" stroke-width="3"/>
+      <text x="60" y="10" fill="var(--text)" font-size="10" text-anchor="middle">${ang.toFixed(0)}° from vertical</text><text x="180" y="10" fill="var(--text)" font-size="10" text-anchor="middle">${fr.toFixed(0)}° from vertical</text></svg></div>`;
+  };
+  $("lDir").innerHTML = sides.map(({ k, p }) => arrow(p.dir.knee, `${esc(p.n)} · knee contact (tibia frame)`, k) + arrow(p.dir.hip, `${esc(p.n)} · hip contact (pelvis frame)`, k)).join("");
+  // muscle contributions
+  const MOM = { hip_ext: "Hip extension", knee_ext: "Knee extension", knee_flex: "Knee flexion", ankle_pf: "Ankle plantarflexion" };
+  $("lMus").innerHTML = sides.map(({ k, p }) => `<div class="hint" style="color:${col(k)}">${esc(p.n)}</div>` + Object.entries(MOM).map(([m, lab]) => {
+    const gs = Object.entries(p.contrib[m] || {}).sort((x, y) => y[1] - x[1]);
+    return `<div style="font-size:13px">${lab}</div><div class="bar">${gs.map(([g, v], i) => `<span style="width:${100 * v}%;background:${MUS_COL[i]}" title="${g} ${Math.round(100 * v)}%"></span>`).join("")}</div>
+      <div class="mlab" style="margin:-4px 0 8px">${gs.map(([g, v], i) => `<span><span style="color:${MUS_COL[i]}">■</span> ${g} ${Math.round(100 * v)}%</span>`).join("")}</div>`;
+  }).join("")).join("<hr style='border-color:var(--line)'>");
+  // phases
+  const PH = ["walk", "jog", "run", "sprint", "accel", "decel", "cut"], PC = ["#3b5bdb", "#1fb5c9", "#3ddc84", "#f5e04a", "#ff8a3d", "#ff4b6e", "#c77dff"];
+  $("lPh").innerHTML = sides.map(({ k, p }) => `<div class="hint" style="color:${col(k)}">${esc(p.n)} · ${p.steps.toLocaleString()} steps</div>
+    <div class="bar">${PH.map((h, i) => `<span style="width:${100 * p.phases[h] / p.steps}%;background:${PC[i]}"></span>`).join("")}</div>`).join("")
+    + `<div class="mlab">${PH.map((h, i) => `<span><span style="color:${PC[i]}">■</span> ${h}</span>`).join("")}</div>`;
+  // top ACL moments
+  $("lTop").innerHTML = `<tr><th>Player</th><th>When</th><th>Movement</th><th>ACL proxy</th></tr>` + sides.flatMap(({ p }) => p.top_acl.slice(0, 6).map(r =>
+    `<tr><td>${esc(p.n.split(" ").slice(-1)[0])}</td><td>Q${r[2]} ${Math.floor(r[3] / 60)}:${String(Math.floor(r[3] % 60)).padStart(2, "0")}</td><td>${r[1]} at ${r[4].toFixed(1)} m/s, ${r[5].toFixed(1)} m/s²</td><td>${r[0].toFixed(2)} BW</td></tr>`)).join("");
 }
 
 // ---------- tooltip ----------
