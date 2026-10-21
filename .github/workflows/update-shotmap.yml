@@ -1,26 +1,53 @@
 name: Update shot map data
+# Downloads new games (scheduled or manual runs), then rebuilds and publishes the site.
+# Page or build changes pushed to main only rebuild and publish.
 on:
   schedule:
     - cron: "17 9,15 * * *"   # 11:17 and 17:17 Vienna summer time
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["shotmap/index.html", "shotmap/build.py", ".github/workflows/update-shotmap.yml"]
 permissions:
   contents: write
-concurrency: shotmap-data
+  pages: write
+  id-token: write
+concurrency:
+  group: shotmap
+  cancel-in-progress: false
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 340
+    timeout-minutes: 345
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: python fetch.py
+
+      - name: Download new games
+        if: github.event_name != 'push'
         working-directory: shotmap
-        env: { MAX_MINUTES: "300" }
-      - run: |
+        env: { MAX_MINUTES: "290" }
+        run: python fetch.py
+
+      - name: Save new game files
+        if: github.event_name != 'push'
+        run: |
           git config user.name "shot-map-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add shotmap/data
+          git add shotmap/raw
           git diff --cached --quiet && exit 0
-          git commit -q -m "Update shot data"
-          git pull --rebase -q && git push
+          git commit -q -m "Add shot data"
+          git pull --rebase -q && git push -q
+
+      - name: Build site
+        run: python shotmap/build.py _site
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: _site }
+      - id: deploy
+        uses: actions/deploy-pages@v4

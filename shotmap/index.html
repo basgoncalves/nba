@@ -43,10 +43,22 @@
   @media (max-width:640px) { #courts { grid-template-columns:1fr; } }
   @media (max-width:640px) { .mid { order:0; position:sticky; top:0; z-index:3; box-shadow:0 6px 16px #000a; } }
   .court { background:var(--panel); border-radius:12px; padding:10px; }
-  .court h3 { margin:2px 0 0; text-align:center; font-size:17px; }
-  .court .stat { text-align:center; color:var(--dim); font-size:13px; margin-bottom:6px; }
+  .court { position:relative; }
+  .court h3 { position:absolute; left:0; right:0; top:12px; margin:0; text-align:center; font-size:16px; pointer-events:none; z-index:1; }
+  .court .stat { position:absolute; left:0; right:0; top:34px; text-align:center; color:var(--dim); font-size:12px; padding:0 14px; pointer-events:none; z-index:1; }
   .court.a { box-shadow:inset 0 3px 0 var(--a); } .court.b { box-shadow:inset 0 3px 0 var(--b); }
+  .court h3 .hint { font-weight:500; }
   .court svg { width:100%; height:auto; display:block; }
+  @media (max-width:640px) {
+    .court { padding:6px; }
+    .court h3 { top:8px; font-size:14px; } .court .stat { top:27px; font-size:10.5px; }
+    .courts { gap:8px; margin-top:8px; }
+    .mid { padding:6px 10px; gap:4px; }
+    .mid .score { font-size:20px; } .mid .score small { font-size:13px; }
+    .mid .clock { font-size:12px; } .mid input[type=range] { height:22px; }
+    .mid button { padding:3px 8px; min-width:36px; font-size:13px; }
+    .ticks { font-size:10px; } #scoreNote { font-size:11px; }
+  }
   .pick { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:10px; }
   .side { background:var(--panel2); border-radius:10px; padding:10px; display:grid; gap:8px; border-top:3px solid var(--a); }
   .side.b { border-top-color:var(--b); }
@@ -135,7 +147,7 @@
   <div class="legend" id="legDots"><span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="var(--made)"/></svg> Made</span><span><svg width="12" height="12"><path d="M2 2L10 10M10 2L2 10" stroke="var(--miss)" stroke-width="2"/></svg> Missed</span></div>
   <div class="legend hide" id="legHeat"><span id="legHeatTxt">Where shots come from</span><span><span class="grad" id="legHeatBar" style="background:linear-gradient(90deg,#1d3b8f,#1fb5c9,#3ddc84,#f5e04a,#ff4b2b)"></span> <span id="legHeatEnds">rare → most</span></span></div>
   <div class="legend hide" id="legHex"><span>Hexagon size = attempts</span><span>FG% <span class="grad"></span> 0% → 70%+</span></div>
-  <footer>Shot locations from ESPN play-by-play (rounded to ~1 ft), seasons 2024–25 to today. Updated twice daily.</footer>
+  <footer>Shot locations from ESPN play-by-play (rounded to ~1 ft), seasons 2009–10 to today. Updated twice daily.</footer>
 </div>
 <div id="tip"></div>
 <script>
@@ -149,10 +161,10 @@ const MODES = [["auto","Auto"],["dots","Dots"],["hex","Hexagons"],["heat","Heat 
 const COLORS = [["freq","Shot frequency"],["fg","FG%"]];
 
 // ---------- court drawing (NBA legacy coords: basket at 0,0, 1 unit = 0.1 ft) ----------
-const VB = "-252 -2 504 474", Y = y => 422 - y;
+const VB = "-252 88 504 384", Y = y => 422 - y;
 function courtLines() {
   const s = 'stroke="var(--line)" stroke-width="2" fill="none"';
-  return `<rect x="-250" y="0" width="500" height="470" ${s}/>
+  return `<rect x="-250" y="90" width="500" height="380" ${s}/>
   <rect x="-80" y="${Y(142.5)}" width="160" height="190" ${s}/>
   <rect x="-60" y="${Y(142.5)}" width="120" height="190" ${s}/>
   <circle cx="0" cy="${Y(142.5)}" r="60" ${s}/>
@@ -164,7 +176,7 @@ function courtLines() {
   <path d="M-220 ${Y(92.5)} A237.5 237.5 0 0 1 220 ${Y(92.5)}" ${s}/>
   <path d="M-60 0 A60 60 0 0 0 60 0" ${s}/>`;
 }
-const inCourt = s => s.y <= 420 && Math.abs(s.x) <= 250;
+const inCourt = s => s.y <= 332 && Math.abs(s.x) <= 250;
 function dotMarks(list, key) {
   return list.filter(inCourt).map((s, i) => {
     const x = s.x, y = Y(s.y), info = `data-k="${key}" data-i="${i}"`;
@@ -256,7 +268,10 @@ const pct = (m, a) => a ? (100 * m / a).toFixed(1) + "%" : "–";
 // ---------- loading ----------
 async function getJSON(u) { const r = await fetch(u, { cache: "no-cache" }); if (!r.ok) throw new Error(u + " " + r.status); return r.json(); }
 async function init() {
-  try { games = await getJSON("data/games.json"); } catch { games = []; }
+  try {
+    games = (await getJSON("data/games.json")).map(([id, date, season, type, home, away, hs, as, n]) =>
+      ({ id, date: date + "Z", season, type, home, away, hs, as, n }));
+  } catch { games = []; }
   try { players = await getJSON("data/players.json"); } catch { players = []; }
   if (!games.length) { $("sub").textContent = "No games yet — run the “Update shot map data” action."; return; }
   const seasonOf = d => { const t = new Date(d), y = t.getUTCFullYear() + (t.getUTCMonth() >= 8 ? 1 : 0); return `${y - 1}-${String(y).slice(2)}`; };
@@ -352,6 +367,11 @@ const fmtDate = d => new Date(d).toLocaleDateString(undefined, { month: "short",
 const gameLabel = g => `${fmtDate(g.date)} · ${g.away} ${g.as} @ ${g.home} ${g.hs}${g.type && g.type !== "Regular" ? " · " + g.type : ""}`;
 
 // ---------- game clock ----------
+function clockOf(e) {
+  const q = e <= 2880 ? Math.min(4, Math.floor((e - 1) / 720) + 1) : 5 + Math.floor((e - 2881) / 300);
+  const end = q <= 4 ? q * 720 : 2880 + (q - 4) * 300, left = Math.max(0, end - e);
+  return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+}
 function secs(q, c) {
   let left = 0; c = String(c || "");
   if (c.includes(":")) { const [m, x] = c.split(":"); left = +m * 60 + +x; } else left = +c || 0;
@@ -396,10 +416,12 @@ function fillGames() {
 }
 async function loadGame() {
   const g = gameById[$("game").value]; if (!g) return;
-  const f = await getJSON(`data/shots/${g.id}.json`);
-  shots = (Array.isArray(f) ? f : f.shots).map(s => ({ ...s, pid: s.pid || s.p, e: secs(s.q, s.c) }));
-  try { st.tl = await getJSON(`data/score/${g.id}.json`); } catch { st.tl = null; }
+  const f = await getJSON(`raw/${g.season}/${g.id}.json`), side = [f.away, f.home];
+  shots = f.shots.map(([pid, ti, q, m, v, x, y, e, di]) => ({
+    pid, p: (f.names[pid] || ["Unknown"])[0], t: side[ti], q, m, v, x, y, e, c: clockOf(e), d: f.types[di] || "" }));
+  st.tl = f.score && f.score.length > 1 ? f.score : null;
   initClock();
+  if (!shots.length) $("scoreNote").textContent = "ESPN has no shot locations for this game";
   st.sel = new Set(shots.map(s => s.pid));
   renderPlayers(); drawGame(); updateUrlGame();
 }
@@ -441,8 +463,8 @@ function findPlayer(v) {
 async function playerShots(id) {
   if (cs.cache[id]) return cs.cache[id];
   const f = await getJSON(`data/players/${id}.json`);
-  const c = f.cols;
-  return cs.cache[id] = f.shots.map(r => ({ ...Object.fromEntries(c.map((k, i) => [k, r[i]])), p: f.n }));
+  return cs.cache[id] = f.shots.map(([g, t, q, m, v, x, y, di]) =>
+    ({ g, s: (gameById[g] || {}).season, t, q, m, v, x, y, d: f.types[di] || "", p: f.n }));
 }
 async function setSide(k, id, silent) {
   const p = playerById[id]; if (!p) return;
@@ -497,7 +519,7 @@ function drawPair(courtsId, zonesId, sides, mode, colorBy) {
   $(courtsId).innerHTML = sides.map(({ k, title, tag, sub, list, empty }) => {
     if (empty) return `<div class="court ${k}"><h3 class="hint">${empty}</h3><svg viewBox="${VB}">${courtLines()}</svg></div>`;
     const S = summary(list); window._g[courtsId + k] = list.filter(inCourt);
-    const marks = !list.length ? `<text x="0" y="200" text-anchor="middle" fill="var(--dim)" font-size="22">No shots</text>`
+    const marks = !list.length ? `<text x="0" y="300" text-anchor="middle" fill="var(--dim)" font-size="22">No shots</text>`
       : kind === "heat" ? heatMarks(list, colorBy) : kind === "hex" ? hexMarks(list, courtsId + k) : dotMarks(list, courtsId + k);
     const lines = kind === "heat" ? courtLines().replaceAll('stroke="var(--line)"', 'stroke="#ffffff66"') : courtLines();
     return `<div class="court ${k}"><h3>${esc(title)} <span class="hint">${tag || ""}</span></h3>
@@ -542,8 +564,7 @@ async function teamShots(t, season) {
   const key = t + "_" + season;
   if (ts.cache[key]) return ts.cache[key];
   const f = await getJSON(`data/teams/${key}.json`);
-  const rows = f.shots.map(r => Object.fromEntries(f.cols.map((c, i) => [c, r[i]])));
-  rows.forEach(s => s.p = f.players[s.pid]);
+  const rows = f.shots.map(([g, pid, q, m, v, x, y]) => ({ g, pid, q, m, v, x, y, p: f.players[pid] }));
   return ts.cache[key] = { players: f.players, shots: rows };
 }
 function fillTeams() {
