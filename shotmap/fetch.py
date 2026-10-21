@@ -64,8 +64,11 @@ ESPN = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
 def from_espn():
     games, d = [], SEASON_START
     while d <= date.today():
-        end = min(d + timedelta(days=13), date.today())
-        sb = get(f"{ESPN}/scoreboard?dates={d:%Y%m%d}-{end:%Y%m%d}&limit=500")
+        end = d
+        try:
+            sb = get(f"{ESPN}/scoreboard?dates={d:%Y%m%d}")
+        except Exception as e:
+            print("scoreboard", d, e); d += timedelta(days=1); continue
         for e in sb.get("events", []):
             if e["season"].get("type") == 1 or not e["status"]["type"].get("completed"):
                 continue  # skip preseason and unfinished games
@@ -76,7 +79,10 @@ def from_espn():
         d = end + timedelta(days=1)
     for g in games:
         if not os.path.exists(f"data/shots/{g['id']}.json"):
-            save(g["id"], espn_shots(g["id"][4:]))
+            try:
+                save(g["id"], espn_shots(g["id"][4:]))
+            except Exception as e:
+                print("skip", g["id"], e)
     return games
 
 
