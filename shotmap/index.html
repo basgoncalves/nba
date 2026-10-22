@@ -683,7 +683,7 @@ async function loadLoadGame() {
   const opts = ps.map(([id, p]) => `<option value="${id}">${esc(p.n)} (${p.t})</option>`).join("");
   $("lpa").innerHTML = opts; $("lpb").innerHTML = `<option value="">— compare with… —</option>` + opts;
   ls.a = ps[0][0]; ls.b = ""; $("lpa").value = ls.a; $("lpb").value = "";
-  chips("lOut", Object.entries(L.outputs).map(([k, o]) => [k, o.label.replace(/ \(.*\)/, "").replace("Knee ", "Knee ").replace(" contact force", "")]), ls, "out", drawLoad);
+  chips("lOut", Object.entries(L.outputs).map(([k, o]) => [k, o.label.replace(/ \(.*\)/, "").replace(" contact force", "")]), ls, "out", drawLoad);
   $("lWarn").innerHTML = L.library.status === "placeholder"
     ? `<b>Model estimates with placeholder coefficients.</b> Movement (speed, acceleration, cuts, steps) comes from SportVU tracking; the load per step comes from a task library that still uses rough literature-range values, not BioScout simulations. Use for relative comparisons only. Jumps and landings are not included yet.`
     : `Loads estimated with BioScout task library v${L.library.version}.`;
@@ -692,48 +692,89 @@ async function loadLoadGame() {
 function drawLoad() {
   const L = ls.data; if (!L) return;
   const sides = [["a", ls.a], ["b", ls.b]].filter(([, id]) => id && L.players[id]).map(([k, id]) => ({ k, p: L.players[id] }));
-  const o = L.outputs[ls.out], u = o.unit, isStrain = u === "%";
+  const o = L.outputs[ls.out], u = o.unit, kind = o.kind || (u === "%" ? "peak" : "sum");
   const col = k => k === "a" ? "var(--a)" : "var(--b)";
-  // cards
-  $("lCards").innerHTML = sides.map(({ k, p }) => `
-    <div class="card ${k}"><div class="lab">${esc(p.n)} · ${p.t}</div>
-      <div class="big">${isStrain ? p.max[ls.out].toFixed(1) + "%" : Math.round(p.sum[ls.out]).toLocaleString() + " " + u}</div>
-      <div class="lab">${isStrain ? "peak " + o.label.toLowerCase() : "cumulative " + o.label.toLowerCase()}</div>
-      <div class="lab">peak per step ${p.max[ls.out].toFixed(2)} ${u} · ${p.steps.toLocaleString()} steps · ${isStrain ? "" : (p.sum[ls.out] / p.steps).toFixed(2) + " " + u + "/step"}</div></div>`).join("");
-  // timeline
   const nb = Math.ceil(Math.max(2880, ...sides.flatMap(({ p }) => Object.keys(p.bins).map(b => (+b + 1) * L.bin))) / L.bin);
+  const mmss = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+  // one accessor per kind of metric: card text, timeline (solid + cumulative), per-quarter value, court map
+  const M = ({ p }) => {
+    const K = p.kin || { bins: {}, q: {}, grid: {}, bands: {} }, B = i => K.bins[i] || {};
+    if (kind === "speed") return {
+      big: (K.dist / 1000).toFixed(2) + " km", lab: "distance covered",
+      sub: `top speed ${K.vmax.toFixed(2)} m/s (${(K.vmax * 3.6).toFixed(1)} km/h) · mean ${(K.dist / Math.max(1, K.time)).toFixed(2)} m/s · ${mmss(K.time)} on court`,
+      bands: K.bands,
+      bin: i => B(i).t ? B(i).d / B(i).t : 0, add: i => B(i).d || 0, cum: true, yl: "mean m/s per 10 s · dashed = distance",
+      q: q => (K.q[q] || {}).dist || 0, qf: v => Math.round(v) + " m",
+      grid: { ratio: [K.grid.vt, K.grid.t], lo: 0.5, hi: 4.5, label: "mean running speed (blue 0.5 → red 4.5 m/s)" } };
+    if (kind === "accel" || kind === "decel") {
+      const acc = kind === "accel", n = acc ? K.nacc : K.ndec, pk = acc ? K.amax : -K.dmax;
+      return {
+        big: n.toLocaleString(), lab: `hard ${acc ? "accelerations" : "decelerations"} (> 2.5 m/s²)`,
+        sub: `peak ${pk.toFixed(1)} m/s² (top 0.5% of moments) · ${(n / Math.max(1, K.time / 60)).toFixed(1)} per minute on court`,
+        bin: i => Math.abs((acc ? B(i).amax : B(i).dmax) || 0), add: i => (acc ? B(i).na : B(i).nd) || 0, cum: true,
+        yl: `peak ${acc ? "acceleration" : "deceleration"} m/s² per 10 s · dashed = count`,
+        q: q => ((K.q[q] || {})[acc ? "nacc" : "ndec"]) || 0, qf: v => Math.round(v),
+        grid: { sum: K.grid[acc ? "acc" : "dec"], label: `where hard ${acc ? "accelerations" : "decelerations"} happen` } };
+    }
+    const peak = kind === "peak";
+    return {
+      big: peak ? p.max[ls.out].toFixed(1) + "%" : Math.round(p.sum[ls.out]).toLocaleString() + " " + u,
+      lab: (peak ? "peak " : "cumulative ") + o.label.toLowerCase(),
+      sub: `peak per step ${p.max[ls.out].toFixed(2)} ${u} · ${p.steps.toLocaleString()} steps${peak ? "" : " · " + (p.sum[ls.out] / p.steps).toFixed(2) + " " + u + "/step"}`,
+      bin: i => (p.bins[i] || {})[peak ? ls.out + "_max" : ls.out] || 0, add: i => (p.bins[i] || {})[ls.out] || 0, cum: !peak,
+      yl: peak ? "peak % per 10 s" : u + " per 10 s · dashed = cumulative",
+      q: q => p.q[q] ? (peak ? p.q[q].max[ls.out] : p.q[q].sum[ls.out]) : 0, qf: v => peak ? v.toFixed(1) : Math.round(v),
+      grid: { sum: p.grid[ls.out], label: `where ${o.label.toLowerCase()} happens` } };
+  };
+  const ms = sides.map(sd => ({ ...sd, m: M(sd) }));
+  // cards
+  const BANDC = { walk: "#3b5bdb", jog: "#1fb5c9", run: "#3ddc84", sprint: "#ff4b2b" };
+  $("lCards").innerHTML = ms.map(({ k, p, m }) => {
+    const tot = m.bands ? Object.values(m.bands).reduce((a, b) => a + b, 0) || 1 : 0;
+    return `<div class="card ${k}"><div class="lab">${esc(p.n)} · ${p.t}</div>
+      <div class="big">${m.big}</div><div class="lab">${m.lab}</div><div class="lab">${m.sub}</div>
+      ${m.bands ? `<div class="bar" style="margin-top:6px">${Object.entries(m.bands).map(([b, v]) => `<span style="width:${100 * v / tot}%;background:${BANDC[b]}" title="${b} ${v} m"></span>`).join("")}</div>
+      <div class="mlab">${Object.entries(m.bands).map(([b, v]) => `<span><span style="color:${BANDC[b]}">■</span> ${b} ${v} m</span>`).join("")}</div>` : ""}</div>`;
+  }).join("");
+  // timeline
   const W = 700, H = 200, pad = 30;
-  const series = sides.map(({ k, p }) => { const v = Array.from({ length: nb }, (_, i) => (p.bins[i] || {})[isStrain ? ls.out + "_max" : ls.out] || 0); return { k, v }; });
-  const vmax = Math.max(1e-6, ...series.flatMap(s => s.v));
-  const cum = series.map(s => { let c = 0; return s.v.map(x => c += x); });
-  const cmax = Math.max(1e-6, ...cum.map(c => c.at(-1)));
+  const series = ms.map(({ k, m }) => ({ k, v: Array.from({ length: nb }, (_, i) => m.bin(i)), c: (() => { let c = 0; return Array.from({ length: nb }, (_, i) => c += m.add(i)); })(), cum: m.cum }));
+  const vmax = Math.max(1e-6, ...series.flatMap(s => s.v)), cmax = Math.max(1e-6, ...series.map(s => s.c.at(-1)));
   const X = i => pad + (W - pad - 8) * i / (nb - 1), Yv = v => H - 22 - (H - 40) * v / vmax, Yc = v => H - 22 - (H - 40) * v / cmax;
   let svg = `<svg viewBox="0 0 ${W} ${H}">`;
   for (let q = 1; q <= 4; q++) { const x = X(q * 72); svg += `<line x1="${x}" y1="10" x2="${x}" y2="${H - 22}" stroke="var(--line)" stroke-dasharray="3 3"/><text x="${X((q - 1) * 72 + 36)}" y="${H - 6}" fill="var(--dim)" font-size="11" text-anchor="middle">Q${q}</text>`; }
-  series.forEach((s, j) => {
+  [0, 0.5, 1].forEach(f => svg += `<text x="${pad - 4}" y="${Yv(vmax * f) + 4}" fill="var(--dim)" font-size="10" text-anchor="end">${(vmax * f).toFixed(vmax < 10 ? 1 : 0)}</text>`);
+  series.forEach(s => {
     svg += `<path d="${s.v.map((v, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Yv(v).toFixed(1)).join("")}" fill="none" stroke="${col(s.k)}" stroke-width="1.6" opacity=".9"/>`;
-    if (!isStrain) svg += `<path d="${cum[j].map((v, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Yc(v).toFixed(1)).join("")}" fill="none" stroke="${col(s.k)}" stroke-width="2" stroke-dasharray="6 4"/>`;
+    if (s.cum) svg += `<path d="${s.c.map((v, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Yc(v).toFixed(1)).join("")}" fill="none" stroke="${col(s.k)}" stroke-width="2" stroke-dasharray="6 4"/>`;
   });
-  svg += `<text x="4" y="14" fill="var(--dim)" font-size="11">${isStrain ? "peak %" : u + " per 10 s"}</text></svg>`;
+  svg += `<text x="${pad}" y="10" fill="var(--dim)" font-size="11">${ms[0] ? ms[0].m.yl : ""}</text></svg>`;
   $("lTime").innerHTML = svg;
   // per quarter bars
-  const qs = ["1", "2", "3", "4"], qv = sides.map(({ k, p }) => ({ k, v: qs.map(q => p.q[q] ? (isStrain ? p.q[q].max[ls.out] : p.q[q].sum[ls.out]) : 0) }));
+  const qs = ["1", "2", "3", "4"], qv = ms.map(({ k, m }) => ({ k, v: qs.map(q => m.q(q)), f: m.qf }));
   const qm = Math.max(1e-6, ...qv.flatMap(s => s.v)), bw = 600 / 4;
   $("lQ").innerHTML = `<svg viewBox="0 0 640 150">` + qs.map((q, i) => qv.map((s, j) => {
     const h = 110 * s.v[i] / qm, x = 30 + i * bw + j * (bw / 2.6) + 12;
-    return `<rect x="${x}" y="${120 - h}" width="${bw / 2.8}" height="${h}" rx="3" fill="${col(s.k)}"/><text x="${x + bw / 5.6}" y="${116 - h}" fill="var(--text)" font-size="11" text-anchor="middle">${isStrain ? s.v[i].toFixed(1) : Math.round(s.v[i])}</text>`;
+    return `<rect x="${x}" y="${120 - h}" width="${bw / 2.8}" height="${h}" rx="3" fill="${col(s.k)}"/><text x="${x + bw / 5.6}" y="${116 - h}" fill="var(--text)" font-size="11" text-anchor="middle">${s.f(s.v[i])}</text>`;
   }).join("") + `<text x="${30 + i * bw + bw / 2.4}" y="140" fill="var(--dim)" font-size="12" text-anchor="middle">Q${q}</text>`).join("") + `</svg>`;
   // court maps
-  const [cw, ch] = L.grid;
-  $("lCourts").innerHTML = sides.map(({ k, p }) => {
-    const g = p.grid[ls.out], up = 4, Wc = cw * up, Hc = ch * up, raw = new Float32Array(Wc * Hc);
-    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) raw[(ch - 1 - y) * up * Wc + x * up + Math.floor(up / 2) * Wc + Math.floor(up / 2)] = g[y * cw + x];
-    const A = blur(raw, Wc, Hc, 3.2); let mx = 0; for (const v of A) mx = Math.max(mx, v);
+  const [cw, ch] = L.grid, up = 4, Wc = cw * up, Hc = ch * up;
+  const toCanvas = g => { const raw = new Float32Array(Wc * Hc);
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) raw[(ch - 1 - y) * up * Wc + x * up + Math.floor(up / 2) * Wc + Math.floor(up / 2)] = g[y * cw + x] || 0;
+    return blur(raw, Wc, Hc, 3.2); };
+  $("lCourts").innerHTML = ms.map(({ k, p, m }) => {
     const cv = document.createElement("canvas"); cv.width = Wc; cv.height = Hc; const cx = cv.getContext("2d"), img = cx.createImageData(Wc, Hc);
-    for (let i = 0; i < A.length; i++) { const d = mx ? A[i] / mx : 0; if (d < 0.03) continue; img.data.set([...ramp(JET, Math.pow(d, 0.6)), Math.round(255 * Math.min(1, 0.3 + d))], i * 4); }
+    if (m.grid.ratio) {   // mean value map, e.g. speed = sum(v*dt) / sum(dt)
+      const N = toCanvas(m.grid.ratio[0]), D = toCanvas(m.grid.ratio[1]); let dm = 0; for (const v of D) dm = Math.max(dm, v);
+      for (let i = 0; i < N.length; i++) { const w = dm ? D[i] / dm : 0; if (w < 0.02) continue;
+        img.data.set([...ramp(JET, (N[i] / D[i] - m.grid.lo) / (m.grid.hi - m.grid.lo)), Math.round(255 * Math.min(1, 0.35 + 2 * w))], i * 4); }
+    } else {
+      const A = toCanvas(m.grid.sum); let mx = 0; for (const v of A) mx = Math.max(mx, v);
+      for (let i = 0; i < A.length; i++) { const d = mx ? A[i] / mx : 0; if (d < 0.03) continue; img.data.set([...ramp(JET, Math.pow(d, 0.6)), Math.round(255 * Math.min(1, 0.3 + d))], i * 4); }
+    }
     cx.putImageData(img, 0, 0);
     const s = 'stroke="#ffffff88" stroke-width=".08" fill="none"';
-    return `<div class="court ${k}"><h3>${esc(p.n)} <span class="hint">where ${esc(o.label.toLowerCase())} happens</span></h3>
+    return `<div class="court ${k}"><h3>${esc(p.n)} <span class="hint">${esc(m.grid.label)}</span></h3>
       <svg viewBox="-0.3 -1.6 29.25 17.1"><image href="${cv.toDataURL()}" x="0" y="0" width="${cw}" height="${ch}" preserveAspectRatio="none" style="filter:blur(.6px)"/>
       <rect x="0" y="0" width="28.65" height="15.24" ${s}/><line x1="14.325" y1="0" x2="14.325" y2="15.24" ${s}/><circle cx="14.325" cy="7.62" r="1.83" ${s}/>
       <rect x="0" y="5.18" width="5.79" height="4.88" ${s}/><rect x="22.86" y="5.18" width="5.79" height="4.88" ${s}/>

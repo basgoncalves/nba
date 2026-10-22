@@ -21,6 +21,12 @@ CELL = 1.0        # m, court map cell
 CW, CH = 29, 16   # cells across a 28.65 x 15.24 m court
 A_CAP = 6.0       # m/s2
 V_CAP = 9.0       # m/s
+KIN_A_CAP = 7.0   # m/s2: larger values are tracking artefacts and are ignored
+HARD = 2.5        # m/s2: an acceleration/deceleration effort starts above this
+SPEED_BANDS = [("walk", 0, 2.0), ("jog", 2.0, 4.0), ("run", 4.0, 5.5), ("sprint", 5.5, 99)]
+KIN_OUTPUTS = {"speed": {"label": "Running speed", "unit": "m/s", "kind": "speed"},
+               "accel": {"label": "Accelerations", "unit": "m/s²", "kind": "accel"},
+               "decel": {"label": "Decelerations", "unit": "m/s²", "kind": "decel"}}
 PHASES = ["walk", "jog", "run", "sprint", "accel", "decel", "cut"]
 
 
@@ -62,8 +68,14 @@ def game(gid):
             P = res.setdefault(pid, {
                 "steps": {p: 0 for p in PHASES}, "sum": {k: 0.0 for k in OUTS}, "max": {k: 0.0 for k in OUTS},
                 "q": {}, "bins": {}, "grid": {k: [0.0] * (CW * CH) for k in OUTS},
-                "dir": {"knee": [0, 0, 0], "hip": [0, 0, 0]}, "top": []})
+                "dir": {"knee": [0, 0, 0], "hip": [0, 0, 0]}, "top": [],
+                "kin": {"dist": 0.0, "time": 0.0, "vmax": 0.0, "amax": 0.0, "dmax": 0.0, "nacc": 0, "ndec": 0,
+                        "bands": {b: 0.0 for b, _, _ in SPEED_BANDS}, "q": {}, "bins": {},
+                        "grid": {"t": [0.0] * (CW * CH), "vt": [0.0] * (CW * CH), "acc": [0] * (CW * CH), "dec": [0] * (CW * CH)}}})
             Q = P["q"].setdefault(str(q), {"steps": 0, "sum": {k: 0.0 for k in OUTS}, "max": {k: 0.0 for k in OUTS}})
+            K = P["kin"]
+            KQ = K["q"].setdefault(str(q), {"dist": 0.0, "time": 0.0, "vmax": 0.0, "amax": 0.0, "dmax": 0.0, "nacc": 0, "ndec": 0})
+            effort = 0
             acc_steps, prev, hist = 0.0, None, []
             for i, r in enumerate(rows):
                 if r == -1:
@@ -79,8 +91,42 @@ def game(gid):
                     turn = math.degrees(dh) / max(1e-3, (f2 - f0) / 2 / 25)
                 dt = (fidx[i] - prev) / 25 if prev is not None and fidx[i] - prev <= 2 else 0.04
                 prev = fidx[i]
+                if 0 <= clock[i] <= 0.05:   # after the buzzer
+                    continue
+                # ---- running speed and accelerations, every frame ----
+                # acceleration over +-0.24 s: steadier than frame-to-frame values, which carry camera noise
+                ac = None   # not measurable at the edges of a tracked stretch
+                if 6 <= i < len(rows) - 6 and rows[i - 6] != -1 and rows[i + 6] != -1 and fidx[i + 6] - fidx[i - 6] <= 14:
+                    ac = (rows[i + 6][2] - rows[i - 6][2]) / 10 / ((fidx[i + 6] - fidx[i - 6]) / 25)
+                vc = min(v, V_CAP)
+                t = qstart + (qlen - clock[i]) if clock[i] >= 0 else qstart
+                kb = K["bins"].setdefault(str(int(t // BIN)), {"d": 0.0, "t": 0.0, "vmax": 0.0, "amax": 0.0, "dmax": 0.0, "na": 0, "nd": 0})
+                cell = min(CH - 1, max(0, int(y / CELL))) * CW + min(CW - 1, max(0, int(x / CELL)))
+                for o in (K, KQ):
+                    o["dist"] += vc * dt; o["time"] += dt
+                    o["vmax"] = max(o["vmax"], vc)
+                kb["d"] += vc * dt; kb["t"] += dt
+                kb["vmax"] = max(kb["vmax"], vc)
+                for b, lo, hi in SPEED_BANDS:
+                    if lo <= vc < hi:
+                        K["bands"][b] += vc * dt
+                K["grid"]["t"][cell] += dt; K["grid"]["vt"][cell] += vc * dt
+                if ac is not None and abs(ac) > KIN_A_CAP:
+                    ac = None
+                if ac is not None:
+                    kb["amax"] = max(kb["amax"], ac); kb["dmax"] = min(kb["dmax"], ac)
+                    K.setdefault("alist", []).append(ac); KQ.setdefault("alist", []).append(ac)
+                if ac is None:
+                    pass
+                elif ac > HARD and effort != 1:
+                    effort = 1; K["nacc"] += 1; KQ["nacc"] += 1; kb["na"] += 1; K["grid"]["acc"][cell] += 1
+                elif ac < -HARD and effort != -1:
+                    effort = -1; K["ndec"] += 1; KQ["ndec"] += 1; kb["nd"] += 1; K["grid"]["dec"][cell] += 1
+                elif abs(ac) < HARD / 2:
+                    effort = 0
+                # ---- steps and joint/muscle loads ----
                 ph = phase_of(v, a, turn)
-                if not ph or 0 <= clock[i] <= 0.05:   # standing still, or after the buzzer
+                if not ph:
                     continue
                 acc_steps += step_rate(v) * dt
                 while acc_steps >= 1:
@@ -103,8 +149,17 @@ def game(gid):
                     P["top"].append([round(L["acl"], 3), ph, q, round(clock[i], 1), round(v, 2), round(a, 2), round(x, 1), round(y, 1)])
             P["top"] = sorted(P["top"], reverse=True)[:12]
 
+    def peaks(o):   # robust peaks: 99.5th percentile, so a single tracking glitch does not set the record
+        al = sorted(o.pop("alist", []))
+        if al:
+            o["amax"] = al[min(len(al) - 1, int(0.995 * len(al)))]
+            o["dmax"] = al[int(0.005 * len(al))]
+
     players = {}
     for pid, P in res.items():
+        peaks(P["kin"])
+        for KQ in P["kin"]["q"].values():
+            peaks(KQ)
         n = sum(P["steps"].values())
         if not n:
             continue
@@ -128,10 +183,18 @@ def game(gid):
             "dir": {"knee": norm(P["dir"]["knee"]), "hip": norm(P["dir"]["hip"])},
             "contrib": {m: {g: round(s, 3) for g, s in gs.items()} for m, gs in contrib.items()},
             "top_acl": P["top"],
+            "kin": {
+                **{k: round(P["kin"][k], 2) for k in ("dist", "time", "vmax", "amax", "dmax")},
+                "nacc": P["kin"]["nacc"], "ndec": P["kin"]["ndec"],
+                "bands": {b: round(v) for b, v in P["kin"]["bands"].items()},
+                "q": {q: {k: round(v, 2) for k, v in KQ.items()} for q, KQ in P["kin"]["q"].items()},
+                "bins": {b: {k: round(v, 2) for k, v in d.items()} for b, d in sorted(P["kin"]["bins"].items(), key=lambda kv: int(kv[0]))},
+                "grid": {k: [round(v, 1) for v in g] for k, g in P["kin"]["grid"].items()},
+            },
         }
     out = {"id": gid, "date": meta["date"], "home": meta["home"], "away": meta["away"],
            "bin": BIN, "grid": [CW, CH, CELL], "library": {"version": LIB["version"], "status": LIB["status"], "note": LIB["note"]},
-           "outputs": LIB["outputs"], "frames": LIB["frames"], "players": players}
+           "outputs": {**KIN_OUTPUTS, **LIB["outputs"]}, "frames": LIB["frames"], "players": players}
     os.makedirs(os.path.join(HERE, "load"), exist_ok=True)
     path = os.path.join(HERE, "load", f"{gid}.json")
     json.dump(out, open(path, "w"), separators=(",", ":"))
