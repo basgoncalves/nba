@@ -9,7 +9,8 @@ Each game file:
    "names": {playerId: [short, full]},
    "types": [shot type names],
    "shots": [[playerId, team(0=away,1=home), quarter, made, value, x, y, seconds, typeIndex, assisterId or ""], ...],
-   "score": [[seconds, awayScore, homeScore], ...]}
+   "score": [[seconds, awayScore, homeScore], ...],
+   "box": {"cols": [MIN, FG, 3PT, ...], "rows": {playerId: [team, starter, didNotPlay, *stats]}}}
 x/y: tenths of a foot from the basket. seconds: elapsed since tip-off.
 
 build.py turns these into the files the web page reads.
@@ -70,13 +71,16 @@ def out_of_time():
 
 
 # ---------------------------------------------------------------- which games exist
-have = {}
+have, refresh = {}, []
 for season in os.listdir("raw"):
     d = os.path.join("raw", season)
     if os.path.isdir(d):
         for f in os.listdir(d):
-            if load_json(os.path.join(d, f), {}).get("v") == VERSION:
+            g0 = load_json(os.path.join(d, f), {})
+            if g0.get("v") == VERSION:
                 have[f[:-5]] = season
+                if "box" not in g0:   # saved before box scores were added: download again
+                    refresh.append({k: g0[k] for k in ("id", "date", "season", "type", "home", "away", "hs", "as")})
 
 scanned = set(load_json("raw/scanned_days.json", []))
 today = date.today()
@@ -119,13 +123,19 @@ def download(g):
     side = {}
     for t in s["boxscore"]["teams"]:
         side[t["team"]["id"]] = 1 if t["team"]["abbreviation"] == g["home"] else 0
-    names = {}
+    names, box = {}, {"cols": [], "rows": {}}
     for tp in s["boxscore"].get("players", []):
+        ti = side.get(tp.get("team", {}).get("id"), 0)
         for stt in tp["statistics"]:
+            if not box["cols"]:
+                box["cols"] = stt.get("labels") or stt.get("names") or []
             for a in stt["athletes"]:
                 ath = a["athlete"]
                 first, _, last = ath["displayName"].partition(" ")
                 names[ath["id"]] = [f"{first[:1]}. {last}" if last else first, ath["displayName"]]
+                # [team (0 away, 1 home), starter, did not play, *stats as ESPN gives them, e.g. "8-15"]
+                box["rows"][ath["id"]] = [ti, 1 if a.get("starter") else 0, 1 if a.get("didNotPlay") else 0,
+                                          *(a.get("stats") or [])]
 
     plays = s.get("plays", [])
     score, last = [[0, 0, 0]], (0, 0)
@@ -166,11 +176,14 @@ def download(g):
                 types.append(r["d"])
             shots.append([r["pid"], r["t"], r["q"], r["m"], r["v"],
                           round((r["x"] - rx) * 10), round((r["y"] - ry) * 10 * sign), r["e"], types.index(r["d"]), r["a"]])
-    used = {r[0] for r in shots} | {r[9] for r in shots if r[9]}
+    used = {r[0] for r in shots} | {r[9] for r in shots if r[9]} | set(box["rows"])
     return {"v": VERSION, **g, "names": {k: v for k, v in names.items() if k in used},
-            "types": types, "shots": shots, "score": score}
+            "types": types, "shots": shots, "score": score, "box": box}
 
 
+ids = {t["id"] for t in todo}
+todo += [g for g in refresh if g["id"] not in ids]
+print(f"{len(refresh)} saved games get their box score added")
 n = 0
 for g in sorted(todo, key=lambda g: g["date"], reverse=True):   # newest first
     if out_of_time():

@@ -86,6 +86,15 @@
   .bar { display:flex; height:16px; border-radius:4px; overflow:hidden; margin:3px 0 8px; }
   .bar span { display:block; height:100%; }
   .mlab { font-size:12px; color:var(--dim); display:flex; flex-wrap:wrap; gap:8px; }
+  .boxwrap { overflow-x:auto; margin-bottom:10px; }
+  table.box { border-collapse:collapse; width:100%; font-size:13px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  table.box th, table.box td { padding:5px 7px; text-align:right; border-bottom:1px solid #222836; }
+  table.box th:first-child, table.box td:first-child { text-align:left; position:sticky; left:0; background:var(--panel); }
+  table.box th { color:var(--dim); font-weight:500; font-size:11px; }
+  table.box tr.p { cursor:pointer; } table.box tr.off td { opacity:.4; } table.box tr.dnp td { opacity:.35; font-style:italic; }
+  table.box tr.tot td { font-weight:700; border-top:1px solid var(--line); }
+  table.box .st { color:var(--accent); font-size:10px; margin-left:4px; }
+  table.box caption { text-align:left; font-weight:700; padding:4px 0 6px; }
   .dirs { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
   @media (max-width:520px) { .two { grid-template-columns:1fr; } }
 </style>
@@ -101,6 +110,7 @@
       <div class="two"><select id="gSeason"></select><select id="game"></select></div>
       <div class="row"><span class="lbl">Quarter</span><div id="quarters" class="row"></div></div>
       <div class="row"><span class="lbl">Result</span><div id="results" class="row"></div></div>
+      <div class="row"><span class="lbl">Who</span><div id="roles" class="row"></div><span class="hint" id="roleHint"></span></div>
       <details open>
         <summary>Players</summary>
         <div class="row" style="margin-top:8px">
@@ -121,6 +131,7 @@
       </div>
       <div id="ct1"></div>
     </div>
+      <div class="panel" id="boxPanel"><h4>Box score <span class="hint" id="boxHint">full game · tap a player to show or hide their shots</span></h4><div id="box"></div></div>
   </section>
 
   <!-- ============ COMPARE VIEW ============ -->
@@ -185,7 +196,7 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let games = [], gameById = {}, players = [], playerById = {}, shots = [];
-const st = { q:"all", r:"all", sel:new Set(), t:2880, max:2880, tl:null, timer:null };
+const st = { q:"all", r:"all", role:"all", box:null, names:{}, sel:new Set(), t:2880, max:2880, tl:null, timer:null };
 const cs = { scope:"season", q:"all", mode:"auto", color:"freq", a:null, b:null, cache:{} };
 const ts = { q:"all", mode:"heat", color:"freq", a:null, b:null, off:{ a:new Set(), b:new Set() }, cache:{}, index:[] };
 const MODES = [["auto","Auto"],["dots","Dots"],["hex","Hexagons"],["heat","Heat map"]];
@@ -348,7 +359,7 @@ async function init() {
 
   $("gSeason").onchange = () => { fillGames(); loadGame(); };
   $("game").onchange = loadGame;
-  $("all").onclick = () => { shots.forEach(s => st.sel.add(s.pid)); renderPlayers(); drawGame(); };
+  $("all").onclick = () => { shots.forEach(s => roleOk(s.pid) && st.sel.add(s.pid)); renderPlayers(); drawGame(); };
   $("none").onclick = () => { st.sel.clear(); renderPlayers(); drawGame(); };
   $("cmpBtn").onclick = () => { const [a, b] = [...st.sel]; openCompare(a, b, "game", $("game").value); };
   $("time").oninput = e => { stopPlay(); setTime(+e.target.value); };
@@ -463,16 +474,58 @@ async function loadGame() {
     pid, p: (f.names[pid] || ["Unknown"])[0], t: side[ti], q, m, v, x, y, e, c: clockOf(e), d: f.types[di] || "",
     a: ast ? 1 : 0, ap: ast ? (f.names[ast] || ["?"])[0] : "" }));
   st.tl = f.score && f.score.length > 1 ? f.score : null;
+  st.box = f.box && f.box.cols && f.box.cols.length ? f.box : null; st.names = f.names || {};
+  st.role = "all"; roleChips();
   initClock();
   if (!shots.length) $("scoreNote").textContent = "ESPN has no shot locations for this game";
   st.sel = new Set(shots.map(s => s.pid));
   renderPlayers(); drawGame(); updateUrlGame();
 }
+const isStarter = pid => st.box && st.box.rows[pid] ? st.box.rows[pid][1] === 1 : null;
+const roleOk = pid => st.role === "all" || (st.role === "start") === (isStarter(pid) === true);
+function roleChips() {
+  chips("roles", [["all", "All players"], ["start", "Starters"], ["bench", "Bench"]], st, "role", () => {
+    st.sel = new Set(shots.map(s => s.pid).filter(roleOk)); renderPlayers(); drawGame();
+  });
+  $("roles").querySelectorAll("button").forEach(b => b.disabled = !st.box && b.dataset.v !== "all");
+  $("roleHint").textContent = st.box ? "" : "starters/bench and box score need the game's box score, which is still being downloaded";
+}
+function boxScore() {
+  if (!st.box) { $("boxPanel").classList.add("hide"); return; }
+  $("boxPanel").classList.remove("hide");
+  const B = st.box, want = ["MIN", "PTS", "REB", "AST", "FG", "3PT", "FT", "OREB", "DREB", "STL", "BLK", "TO", "PF", "+/-"];
+  const cols = want.filter(c => B.cols.includes(c)).concat(B.cols.filter(c => !want.includes(c)));
+  const ix = c => B.cols.indexOf(c) + 3;
+  const split = v => String(v).includes("-") && !String(v).startsWith("-") ? String(v).split("-").map(Number) : null;
+  $("box").innerHTML = teamsOf().map((t, ti) => {
+    const rows = Object.entries(B.rows).filter(([, r]) => r[0] === ti).filter(([pid]) => roleOk(pid))
+      .sort((a, b) => (b[1][1] - a[1][1]) || (a[1][2] - b[1][2]) || ((+b[1][ix("MIN")] || 0) - (+a[1][ix("MIN")] || 0)));
+    const tot = cols.map(c => {
+      if (c === "+/-") return "";
+      let a = 0, b = 0, pair = false;
+      rows.forEach(([, r]) => { if (r[2]) return; const v = r[ix(c)], sp = split(v); if (sp) { pair = true; a += sp[0] || 0; b += sp[1] || 0; } else a += +v || 0; });
+      return pair ? `${a}-${b}` + (["FG", "3PT", "FT"].includes(c) && b ? ` <span class="hint">${Math.round(100 * a / b)}%</span>` : "") : a;
+    });
+    const label = st.role === "start" ? " starters" : st.role === "bench" ? " bench" : "";
+    return `<div class="boxwrap"><table class="box"><caption>${t}${label}</caption><tr><th>Player</th>${cols.map(c => `<th>${c}</th>`).join("")}</tr>` +
+      rows.map(([pid, r]) => {
+        const nm = (st.names[pid] || ["?"])[0];
+        if (r[2]) return `<tr class="dnp"><td>${esc(nm)}</td><td colspan="${cols.length}" style="text-align:left">did not play</td></tr>`;
+        const hasShots = shots.some(s => s.pid === pid);
+        return `<tr class="p ${hasShots && !st.sel.has(pid) ? "off" : ""}" data-pid="${pid}"><td>${esc(nm)}${r[1] ? '<span class="st">S</span>' : ""}</td>${cols.map(c => `<td>${esc(r[ix(c)] ?? "")}</td>`).join("")}</tr>`;
+      }).join("") + `<tr class="tot"><td>Total</td>${tot.map(v => `<td>${v}</td>`).join("")}</tr></table></div>`;
+  }).join("");
+  $("box").onclick = e => {
+    const tr = e.target.closest("tr[data-pid]"); if (!tr) return;
+    const pid = tr.dataset.pid; if (!shots.some(s => s.pid === pid)) return;
+    st.sel.has(pid) ? st.sel.delete(pid) : st.sel.add(pid); renderPlayers(); drawGame();
+  };
+}
 function updateUrlGame() { const g = $("game").value; if (g) history.replaceState(null, "", "?game=" + g); }
 const teamsOf = () => { const g = gameById[$("game").value]; return [g.away, g.home]; };
 function renderPlayers() {
   $("players").innerHTML = teamsOf().map(t => {
-    const ids = [...new Set(shots.filter(s => s.t === t).map(s => s.pid))];
+    const ids = [...new Set(shots.filter(s => s.t === t).map(s => s.pid))].filter(roleOk);
     const rows = ids.map(id => { const n = shots.filter(s => s.pid === id); return { id, name: n[0].p, a: n.length, m: n.filter(s => s.m).length }; })
       .sort((x, y) => y.a - x.a);
     return `<h4>${t}</h4>` + rows.map(r => `<label><input type="checkbox" value="${r.id}" ${st.sel.has(r.id) ? "checked" : ""}> ${esc(r.name)} <span class="hint">${r.m}/${r.a}</span></label>`).join("");
@@ -480,6 +533,7 @@ function renderPlayers() {
   $("players").onchange = e => { e.target.checked ? st.sel.add(e.target.value) : st.sel.delete(e.target.value); drawGame(); };
 }
 function drawGame() {
+  boxScore();
   const ok = st.sel.size === 2;
   $("cmpBtn").disabled = !ok;
   $("cmpHint").textContent = ok ? "Compare these 2 players in this game, season or career" : `Tick exactly 2 players to compare (${st.sel.size} ticked)`;
