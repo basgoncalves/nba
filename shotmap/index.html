@@ -359,8 +359,8 @@ async function init() {
 
   $("gSeason").onchange = () => { fillGames(); loadGame(); };
   $("game").onchange = loadGame;
-  $("all").onclick = () => { shots.forEach(s => roleOk(s.pid) && st.sel.add(s.pid)); renderPlayers(); drawGame(); };
-  $("none").onclick = () => { st.sel.clear(); renderPlayers(); drawGame(); };
+  $("all").onclick = () => { st.role = "all"; roleChips(); shots.forEach(s => st.sel.add(s.pid)); renderPlayers(); drawGame(); };
+  $("none").onclick = () => { st.role = "all"; roleChips(); st.sel.clear(); renderPlayers(); drawGame(); };
   $("cmpBtn").onclick = () => { const [a, b] = [...st.sel]; openCompare(a, b, "game", $("game").value); };
   $("time").oninput = e => { stopPlay(); setTime(+e.target.value); };
   $("toEnd").onclick = () => { stopPlay(); setTime(st.max); };
@@ -498,21 +498,23 @@ function boxScore() {
   const ix = c => B.cols.indexOf(c) + 3;
   const split = v => String(v).includes("-") && !String(v).startsWith("-") ? String(v).split("-").map(Number) : null;
   $("box").innerHTML = teamsOf().map((t, ti) => {
-    const rows = Object.entries(B.rows).filter(([, r]) => r[0] === ti).filter(([pid]) => roleOk(pid))
+    const hasShots = pid => shots.some(s => s.pid === pid);
+    const counted = pid => hasShots(pid) ? st.sel.has(pid) : roleOk(pid);   // totals = ticked players
+    const rows = Object.entries(B.rows).filter(([, r]) => r[0] === ti)
       .sort((a, b) => (b[1][1] - a[1][1]) || (a[1][2] - b[1][2]) || ((+b[1][ix("MIN")] || 0) - (+a[1][ix("MIN")] || 0)));
     const tot = cols.map(c => {
       if (c === "+/-") return "";
       let a = 0, b = 0, pair = false;
-      rows.forEach(([, r]) => { if (r[2]) return; const v = r[ix(c)], sp = split(v); if (sp) { pair = true; a += sp[0] || 0; b += sp[1] || 0; } else a += +v || 0; });
+      rows.forEach(([pid, r]) => { if (r[2] || !counted(pid)) return; const v = r[ix(c)], sp = split(v); if (sp) { pair = true; a += sp[0] || 0; b += sp[1] || 0; } else a += +v || 0; });
       return pair ? `${a}-${b}` + (["FG", "3PT", "FT"].includes(c) && b ? ` <span class="hint">${Math.round(100 * a / b)}%</span>` : "") : a;
     });
-    const label = st.role === "start" ? " starters" : st.role === "bench" ? " bench" : "";
-    return `<div class="boxwrap"><table class="box"><caption>${t}${label}</caption><tr><th>Player</th>${cols.map(c => `<th>${c}</th>`).join("")}</tr>` +
+    const all = rows.every(([pid, r]) => r[2] || counted(pid));
+    const label = all ? "" : st.role === "start" ? " · totals for starters" : st.role === "bench" ? " · totals for bench" : " · totals for ticked players";
+    return `<div class="boxwrap"><table class="box"><caption>${t}<span class="hint" style="font-weight:400">${label}</span></caption><tr><th>Player</th>${cols.map(c => `<th>${c}</th>`).join("")}</tr>` +
       rows.map(([pid, r]) => {
         const nm = (st.names[pid] || ["?"])[0];
         if (r[2]) return `<tr class="dnp"><td>${esc(nm)}</td><td colspan="${cols.length}" style="text-align:left">did not play</td></tr>`;
-        const hasShots = shots.some(s => s.pid === pid);
-        return `<tr class="p ${hasShots && !st.sel.has(pid) ? "off" : ""}" data-pid="${pid}"><td>${esc(nm)}${r[1] ? '<span class="st">S</span>' : ""}</td>${cols.map(c => `<td>${esc(r[ix(c)] ?? "")}</td>`).join("")}</tr>`;
+        return `<tr class="p ${counted(pid) ? "" : "off"}" data-pid="${pid}"><td>${esc(nm)}${r[1] ? '<span class="st">S</span>' : ""}</td>${cols.map(c => `<td>${esc(r[ix(c)] ?? "")}</td>`).join("")}</tr>`;
       }).join("") + `<tr class="tot"><td>Total</td>${tot.map(v => `<td>${v}</td>`).join("")}</tr></table></div>`;
   }).join("");
   $("box").onclick = e => {
@@ -525,7 +527,7 @@ function updateUrlGame() { const g = $("game").value; if (g) history.replaceStat
 const teamsOf = () => { const g = gameById[$("game").value]; return [g.away, g.home]; };
 function renderPlayers() {
   $("players").innerHTML = teamsOf().map(t => {
-    const ids = [...new Set(shots.filter(s => s.t === t).map(s => s.pid))].filter(roleOk);
+    const ids = [...new Set(shots.filter(s => s.t === t).map(s => s.pid))];
     const rows = ids.map(id => { const n = shots.filter(s => s.pid === id); return { id, name: n[0].p, a: n.length, m: n.filter(s => s.m).length }; })
       .sort((x, y) => y.a - x.a);
     return `<h4>${t}</h4>` + rows.map(r => `<label><input type="checkbox" value="${r.id}" ${st.sel.has(r.id) ? "checked" : ""}> ${esc(r.name)} <span class="hint">${r.m}/${r.a}</span></label>`).join("");
