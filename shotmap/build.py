@@ -43,6 +43,8 @@ for season in sorted(os.listdir(os.path.join(here, "raw"))):
         games.append([g["id"], g["date"][:16], g["season"], g["type"], g["home"], g["away"], g["hs"], g["as"], len(g["shots"])])
         for row in g["shots"]:
             pid, ti, q, m, v, x, y, e, di = row[:9]
+            if v == 2 and (x * x + y * y) ** .5 >= 300:   # 30 ft+ is a three (older files)
+                v = 3
             ast = row[9] if len(row) > 9 else ""
             t = side[ti]
             short, full = g["names"].get(pid, ["Unknown", "Unknown"])
