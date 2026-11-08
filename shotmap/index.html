@@ -182,8 +182,8 @@
       </div>
       <datalist id="plist"></datalist>
       <div class="row"><span class="lbl">Quarter</span><div id="cQuarters" class="row"></div></div>
-      <div class="row"><span class="lbl">Show</span><div id="cMode" class="row"></div></div>
-      <div class="row heatOnly"><span class="lbl">Colour by</span><div id="cColor" class="row"></div></div>
+      <div class="row"><span class="lbl">Colour by</span><div id="cColor" class="row"></div></div>
+      <div class="row" style="padding-left:14px;border-left:2px solid var(--line);margin-left:4px"><span class="lbl">Show</span><div id="cMode" class="row"></div></div>
     </div>
     <div class="courts" id="cCourts"></div>
     <table class="zones" id="zones"></table>
@@ -198,8 +198,8 @@
         <div class="side b"><select id="tb"></select><div class="row"><button class="chip" data-all="b">All</button><button class="chip" data-none="b">None</button></div><div class="players" id="tpb"></div></div>
       </div>
       <div class="row"><span class="lbl">Quarter</span><div id="tQuarters" class="row"></div></div>
-      <div class="row"><span class="lbl">Show</span><div id="tMode" class="row"></div></div>
-      <div class="row heatOnly"><span class="lbl">Colour by</span><div id="tColor" class="row"></div></div>
+      <div class="row"><span class="lbl">Colour by</span><div id="tColor" class="row"></div></div>
+      <div class="row" style="padding-left:14px;border-left:2px solid var(--line);margin-left:4px"><span class="lbl">Show</span><div id="tMode" class="row"></div></div>
     </div>
     <div class="courts" id="tCourts"></div>
     <table class="zones" id="tZones"></table>
@@ -262,9 +262,9 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let games = [], gameById = {}, players = [], playerById = {}, shots = [];
 const st = { view:"2d", q:"all", r:"all", role:"all", box:null, names:{}, sel:new Set(), t:2880, max:2880, tl:null, timer:null };
-const cs = { scope:"season", q:"all", mode:"auto", color:"freq", a:null, b:null, cache:{} };
+const cs = { scope:"season", q:"all", mode:"dots", color:"freq", a:null, b:null, cache:{} };
 const ts = { q:"all", mode:"heat", color:"freq", a:null, b:null, off:{ a:new Set(), b:new Set() }, cache:{}, index:[] };
-const MODES = [["auto","Auto"],["dots","Dots"],["hex","Hexagons"],["heat","Heat map"]];
+const MODES = [["dots","Dots"],["heat","Heat map"]];
 const COLORS = [["freq","Shot frequency"],["fg","FG%"],["ast","Assisted %"]];
 const PCOLORS = COLORS.concat([["passes","Assists given"]]);
 
@@ -413,11 +413,14 @@ async function init() {
   try { HEIGHTS = await getJSON("raw/heights.json"); } catch { HEIGHTS = {}; }
   chips("scopes", [["game","Per game"],["season","Season"],["career","Career"]], cs, "scope", () => { syncScope(); drawCmp(); });
   chips("cQuarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], cs, "q", drawCmp);
-  chips("cMode", MODES, cs, "mode", drawCmp);
-  chips("cColor", PCOLORS, cs, "color", drawCmp);
+  // Colour by drives the view: anything but shot frequency needs the heat map; dots are made/missed
+  const viewChips = (S, mid, cid, cols, draw) => {
+    const redo = () => { chips(mid, MODES, S, "mode", () => { if (S.mode === "dots") S.color = "freq"; redo(); draw(); });
+      chips(cid, cols, S, "color", () => { if (S.color !== "freq") S.mode = "heat"; redo(); draw(); }); };
+    redo(); };
+  viewChips(cs, "cMode", "cColor", PCOLORS, drawCmp);
   chips("tQuarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], ts, "q", drawTeams);
-  chips("tMode", MODES, ts, "mode", drawTeams);
-  chips("tColor", COLORS, ts, "color", drawTeams);
+  viewChips(ts, "tMode", "tColor", COLORS, drawTeams);
   try { ts.index = await getJSON("data/teams.json"); } catch { ts.index = []; }
   const tSeasons = [...new Set(ts.index.map(r => r.s))].sort().reverse();
   $("tSeason").innerHTML = tSeasons.map(x => `<option>${x}</option>`).join("");
@@ -715,7 +718,6 @@ function drawPair(courtsId, zonesId, sides, mode, colorBy) {
       <div class="stat">${stat || `FG ${S.fgm}/${S.fga} (${pct(S.fgm, S.fga)}) · 3PT ${S.m3}/${S.a3} (${pct(S.m3, S.a3)}) · eFG ${(100 * S.efg).toFixed(1)}%`}${sub ? " · " + sub : ""}</div>
       <svg viewBox="${VB}">${kind === "heat" ? marks + lines : lines + marks}</svg></div>`;
   }).join("");
-  document.querySelectorAll(".heatOnly").forEach(el => el.classList.toggle("hide", kind !== "heat"));
   $("legDots").classList.toggle("hide", kind !== "dots"); $("legHex").classList.toggle("hide", kind !== "hex");
   $("legHeat").classList.toggle("hide", kind !== "heat");
   const LEG = { fg: ["FG% in each area (faint = few shots)", "25% → 70%"],
