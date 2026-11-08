@@ -96,7 +96,7 @@ def game(gid):
     folder = os.path.join(HERE, gid)
     meta = json.load(open(os.path.join(folder, "meta.json")))
     quarters = sorted(int(f[1:-5]) for f in os.listdir(folder) if f.startswith("q") and f.endswith(".json"))
-    res = {}
+    res, zoom = {}, {}
     for q in quarters:
         d = json.load(open(os.path.join(folder, f"q{q}.json")))
         fidx, clock = d["f"], d["clock"]
@@ -114,6 +114,7 @@ def game(gid):
                         "bands": {b: 0.0 for b, _, _ in SPEED_BANDS}, "q": {}, "bins": {},
                         "grid": {"t": [0.0] * (CW * CH), "vt": [0.0] * (CW * CH), "acc": [0] * (CW * CH), "dec": [0] * (CW * CH)}}})
             Q = P["q"].setdefault(str(q), {"steps": 0, "sum": {k: 0.0 for k in OUTS}, "max": {k: 0.0 for k in OUTS}})
+            Z = zoom.setdefault(pid, {})
             K = P["kin"]
             KQ = K["q"].setdefault(str(q), {"dist": 0.0, "time": 0.0, "vmax": 0.0, "amax": 0.0, "dmax": 0.0, "nacc": 0, "ndec": 0})
             effort = 0
@@ -168,6 +169,10 @@ def game(gid):
                     effort = 0
                 # ---- steps and joint/muscle loads ----
                 ph = phase_of(v, a, turn)
+                if fidx[i] % 5 == 0:   # zoom-in series, 5 per second: [seconds into the bin x10, speed dm/s, accel dm/s2, phase]
+                    zb = Z.setdefault(str(int(t // BIN)), {"s": [], "steps": []})
+                    zb["s"].append([round((t % BIN) * 10), round(vc * 10), round(ac * 10) if ac is not None else None,
+                                    PHASES.index(ph) if ph else -1])
                 if not ph:
                     continue
                 acc_steps += step_rate(v) * dt
@@ -189,6 +194,8 @@ def game(gid):
                     for j in range(3):
                         P["dir"]["knee"][j] += c["knee_dir"][j] * (L["knee_med"] + L["knee_lat"])
                         P["dir"]["hip"][j] += c["hip_dir"][j] * L["hip"]
+                    Z.setdefault(str(int(t // BIN)), {"s": [], "steps": []})["steps"].append(
+                        [round((t % BIN) * 10), PHASES.index(ph), *[round(L[k], 2) for k in OUTS]])
                     P["top"].append([round(L["acl"], 3), ph, q, round(clock[i], 1), round(v, 2), round(a, 2), round(x, 1), round(y, 1)])
             P["top"] = sorted(P["top"], reverse=True)[:12]
 
@@ -241,6 +248,8 @@ def game(gid):
     os.makedirs(os.path.join(HERE, "load"), exist_ok=True)
     path = os.path.join(HERE, "load", f"{gid}.json")
     json.dump(out, open(path, "w"), separators=(",", ":"))
+    json.dump({"phases": PHASES, "outputs": OUTS, "players": {p: z for p, z in zoom.items() if p in players}},
+              open(os.path.join(HERE, "load", f"{gid}_zoom.json"), "w"), separators=(",", ":"))
     return out, path
 
 
@@ -248,9 +257,13 @@ def write_index():
     folder = os.path.join(HERE, "load")
     idx = []
     for f in sorted(os.listdir(folder)):
-        if f.endswith(".json") and f != "index.json":
+        if f.endswith(".json") and f != "index.json" and not f.endswith("_zoom.json"):
             d = json.load(open(os.path.join(folder, f)))
-            idx.append({"id": d["id"], "date": d["date"], "home": d["home"], "away": d["away"], "status": d["library"]["status"]})
+            if not d["players"]:
+                continue
+            qs = sorted({q for p in d["players"].values() for q in p["q"]})
+            idx.append({"id": d["id"], "date": d["date"], "home": d["home"], "away": d["away"],
+                        "status": d["library"]["status"], "quarters": len(qs)})
     json.dump(idx, open(os.path.join(folder, "index.json"), "w"), separators=(",", ":"))
 
 

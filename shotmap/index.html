@@ -208,7 +208,10 @@
       <div class="row"><span class="lbl">Load</span><div id="lOut" class="row"></div></div>
     </div>
     <div class="cards" id="lCards"></div>
-    <div class="panel"><h4>Load over the game <span class="hint">(per 10 s of game clock · dashed = cumulative)</span></h4><div id="lTime"></div></div>
+    <div class="panel"><h4>Load over the game <span class="hint">(per 10 s of game clock · dashed = cumulative · tap a moment to zoom in)</span></h4><div id="lTime" style="cursor:crosshair"></div></div>
+    <div class="panel hide" id="lZoom"><div class="row" style="justify-content:space-between"><h4 id="lzTitle" style="margin:0"></h4>
+      <div class="row"><button class="chip" id="lzPrev">◀ 10 s</button><button class="chip" id="lzNext">10 s ▶</button><button class="chip" id="lzClose">✕</button></div></div>
+      <div id="lzBody"></div></div>
     <div class="panel"><h4>Per quarter</h4><div id="lQ"></div></div>
     <div class="hint" style="margin-top:10px">Court maps: each player's team attacks the right-hand basket. Teams switch ends at half-time, so the second half is mirrored to match.</div>
     <div class="courts" id="lCourts" style="margin-top:6px"></div>
@@ -773,18 +776,21 @@ function legend() {
 }
 
 // ---------- player load view ----------
-const ls = { out: "knee_med", games: [], data: null, a: null, b: null };
+const ls = { out: "knee_med", games: [], data: null, a: null, b: null, zbin: null, zoom: {}, nb: 288 };
 const MUS_COL = ["#5aa9ff", "#ff8a3d", "#3ddc84", "#f5e04a", "#c77dff", "#ff4b6e"];
 async function initLoad() {
   try { ls.games = await getJSON("load/index.json"); } catch { ls.games = []; }
   if (!ls.games.length) { $("tabLoad").disabled = true; $("tabLoad").title = "No tracking games processed yet"; return; }
-  $("lGame").innerHTML = ls.games.map(g => `<option value="${g.id}">${new Date(g.date).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })} · ${g.away} @ ${g.home} (2015–16 tracking)</option>`).join("");
+  $("lGame").innerHTML = ls.games.map(g => `<option value="${g.id}">${new Date(g.date).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })} · ${g.away} @ ${g.home} (2015–16 tracking${g.quarters && g.quarters < 4 ? ", first half only" : ""})</option>`).join("");
   $("lGame").onchange = loadLoadGame;
   $("lpa").onchange = () => { ls.a = $("lpa").value; drawLoad(); };
+  $("lzPrev").onclick = () => showZoom(Math.max(0, ls.zbin - 1));
+  $("lzNext").onclick = () => showZoom(Math.min(ls.nb - 1, ls.zbin + 1));
+  $("lzClose").onclick = () => { ls.zbin = null; $("lZoom").classList.add("hide"); drawLoad(); };
   $("lpb").onchange = () => { ls.b = $("lpb").value; drawLoad(); };
 }
 async function loadLoadGame() {
-  ls.data = await getJSON(`load/${$("lGame").value}.json`);
+  ls.data = await getJSON(`load/${$("lGame").value}.json`); ls.zbin = null; $("lZoom").classList.add("hide");
   const L = ls.data, ps = Object.entries(L.players).sort((x, y) => y[1].steps - x[1].steps);
   const opts = ps.map(([id, p]) => `<option value="${id}">${esc(p.n)} (${p.t})</option>`).join("");
   $("lpa").innerHTML = opts; $("lpb").innerHTML = `<option value="">— compare with… —</option>` + opts;
@@ -855,7 +861,13 @@ function drawLoad() {
     if (s.cum) svg += `<path d="${s.c.map((v, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Yc(v).toFixed(1)).join("")}" fill="none" stroke="${col(s.k)}" stroke-width="2" stroke-dasharray="6 4"/>`;
   });
   svg += `<text x="${pad}" y="10" fill="var(--dim)" font-size="11">${ms[0] ? ms[0].m.yl : ""}</text></svg>`;
-  $("lTime").innerHTML = svg;
+  if (ls.zbin !== null) svg = svg.replace("</svg>", `<rect x="${X(ls.zbin) - 3}" y="10" width="6" height="${H - 32}" fill="#fff" opacity=".25"/></svg>`);
+  $("lTime").innerHTML = svg; ls.nb = nb;
+  $("lTime").onclick = e => {
+    const r = $("lTime").querySelector("svg").getBoundingClientRect(), x = (e.clientX - r.left) / r.width * W;
+    showZoom(Math.max(0, Math.min(nb - 1, Math.round((x - pad) / (W - pad - 8) * (nb - 1)))));
+  };
+  if (ls.zbin !== null) drawZoom();
   // per quarter bars
   const qs = ["1", "2", "3", "4"], qv = ms.map(({ k, m }) => ({ k, v: qs.map(q => m.q(q)), f: m.qf }));
   const qm = Math.max(1e-6, ...qv.flatMap(s => s.v)), bw = 600 / 4;
@@ -1060,6 +1072,47 @@ async function draw3d(f) {
 }
 function currentFiltered() {
   return shots.filter(s => s.e <= st.t && st.sel.has(s.pid) && qOk(s.q, st.q) && (st.r === "all" || (st.r === "made") === !!s.m));
+}
+
+// ---------- zoom into one 10-second moment ----------
+async function showZoom(bin) {
+  ls.zbin = bin; $("lZoom").classList.remove("hide");
+  const gid = $("lGame").value;
+  if (!ls.zoom[gid]) { $("lzBody").innerHTML = '<div class="hint">loading…</div>'; ls.zoom[gid] = await getJSON(`load/${gid}_zoom.json`); }
+  drawLoad();
+  $("lZoom").scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+function drawZoom() {
+  const Z = ls.zoom[$("lGame").value]; if (!Z) return;
+  const L = ls.data, bin = ls.zbin, t0 = bin * L.bin;
+  const q = t0 < 2880 ? Math.floor(t0 / 720) + 1 : 5 + Math.floor((t0 - 2880) / 300);
+  const qend = q <= 4 ? q * 720 : 2880 + (q - 4) * 300, mm = s => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+  $("lzTitle").textContent = `${q <= 4 ? "Q" + q : "OT"} · ${mm(qend - t0)} – ${mm(Math.max(0, qend - t0 - L.bin))} on the clock`;
+  const PC = ["#3b5bdb", "#1fb5c9", "#3ddc84", "#f5e04a", "#ff8a3d", "#ff4b6e", "#c77dff"], oi = Z.outputs.indexOf(ls.out), o = L.outputs[ls.out];
+  const sides = [["a", ls.a], ["b", ls.b]].filter(([, id]) => id && L.players[id]);
+  const W = 700, H = 210, pad = 34, X = t => pad + (W - pad - 30) * t / (L.bin * 10);
+  $("lzBody").innerHTML = sides.map(([k, id]) => {
+    const z = (Z.players[id] || {})[bin], col = k === "a" ? "var(--a)" : "var(--b)", p = L.players[id];
+    if (!z || !z.s.length) return `<div class="hint" style="margin:8px 0">${esc(p.n)}: not on court in these 10 seconds</div>`;
+    const Ys = v => 120 - v / 10 / 9 * 100, Ya = a => 120 - (a / 10 + 6) / 12 * 100;   // speed 0-9 m/s, accel -6..6 m/s2 (same band)
+    let g = `<svg viewBox="0 0 ${W} ${H}">`;
+    [0, 3, 6, 9].forEach(v => g += `<text x="${pad - 4}" y="${Ys(v * 10) + 4}" fill="var(--dim)" font-size="10" text-anchor="end">${v}</text><line x1="${pad}" x2="${W - 30}" y1="${Ys(v * 10)}" y2="${Ys(v * 10)}" stroke="#222836"/>`);
+    // phase strip
+    z.s.forEach((r, i) => { if (r[3] < 0) return; const x0 = X(r[0]), x1 = X(i + 1 < z.s.length ? z.s[i + 1][0] : r[0] + 2); g += `<rect x="${x0}" y="126" width="${Math.max(1, x1 - x0)}" height="8" fill="${PC[r[3]]}"/>`; });
+    g += `<path d="${z.s.map((r, i) => (i ? "L" : "M") + X(r[0]).toFixed(1) + " " + Ys(r[1]).toFixed(1)).join("")}" fill="none" stroke="${col}" stroke-width="2.2"/>`;
+    const ap = z.s.filter(r => r[2] !== null);
+    if (ap.length) g += `<path d="${ap.map((r, i) => (i ? "L" : "M") + X(r[0]).toFixed(1) + " " + Ya(r[2]).toFixed(1)).join("")}" fill="none" stroke="#fff" stroke-width="1.2" stroke-dasharray="4 3" opacity=".7"/>`;
+    // steps: bar height = load of the chosen output
+    const mx = Math.max(1e-6, ...z.steps.map(st => st[2 + oi]));
+    z.steps.forEach(st => { const h = 50 * st[2 + oi] / mx; g += `<rect x="${X(st[0]) - 2}" y="${195 - h}" width="4" height="${h}" fill="${PC[st[1]]}"/>`; });
+    g += `<text x="${pad}" y="12" fill="var(--dim)" font-size="11">speed m/s (solid) · acceleration −6…6 m/s² (dashed) · phase strip · steps (bar = ${esc(o.label.toLowerCase())})</text>`;
+    [-6, 0, 6].forEach(v => g += `<text x="${W - 28}" y="${Ya(v * 10) + 4}" fill="var(--dim)" font-size="10">${v > 0 ? "+" : ""}${v}</text>`);
+    g += `<text x="${W - 28}" y="${Ya(-60) + 16}" fill="var(--dim)" font-size="9">m/s²</text><line x1="${pad}" x2="${W - 30}" y1="${Ya(0)}" y2="${Ya(0)}" stroke="#ffffff22" stroke-dasharray="2 4"/>`;
+    for (let sec = 0; sec <= L.bin; sec += 2) g += `<text x="${X(sec * 10)}" y="${H - 2}" fill="var(--dim)" font-size="10" text-anchor="middle">${sec}s</text>`;
+    g += "</svg>";
+    const sum = z.steps.reduce((a, st) => a + st[2 + oi], 0), vmax = Math.max(...z.s.map(r => r[1])) / 10;
+    return `<div style="color:${col};font-size:13px;margin-top:8px">${esc(p.n)} · ${z.steps.length} steps · top speed ${vmax.toFixed(1)} m/s · ${o.unit === "%" ? "peak " + mx.toFixed(1) + "%" : "load " + sum.toFixed(1) + " " + o.unit}</div>${g}`;
+  }).join("") + `<div class="mlab" style="margin-top:4px">${["walk", "jog", "run", "sprint", "accel", "decel", "cut"].map((h, i) => `<span><span style="color:${PC[i]}">■</span> ${h}</span>`).join("")}</div>`;
 }
 
 // ---------- tooltip ----------
