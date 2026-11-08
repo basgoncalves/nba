@@ -79,7 +79,7 @@ for season in os.listdir("raw"):
             g0 = load_json(os.path.join(d, f), {})
             if g0.get("v") == VERSION:
                 have[f[:-5]] = season
-                if "box" not in g0:   # saved before box scores were added: download again
+                if "box" not in g0 or any(len(v) < 3 for v in g0.get("names", {}).values()):   # no box score / jersey numbers yet: download again
                     refresh.append({k: g0[k] for k in ("id", "date", "season", "type", "home", "away", "hs", "as")})
 
 scanned = set(load_json("raw/scanned_days.json", []))
@@ -132,7 +132,7 @@ def download(g):
             for a in stt["athletes"]:
                 ath = a["athlete"]
                 first, _, last = ath["displayName"].partition(" ")
-                names[ath["id"]] = [f"{first[:1]}. {last}" if last else first, ath["displayName"]]
+                names[ath["id"]] = [f"{first[:1]}. {last}" if last else first, ath["displayName"], str(ath.get("jersey", ""))]
                 # [team (0 away, 1 home), starter, did not play, *stats as ESPN gives them, e.g. "8-15"]
                 box["rows"][ath["id"]] = [ti, 1 if a.get("starter") else 0, 1 if a.get("didNotPlay") else 0,
                                           *(a.get("stats") or [])]

@@ -101,6 +101,13 @@
   .bar { display:flex; height:16px; border-radius:4px; overflow:hidden; margin:3px 0 8px; }
   .bar span { display:block; height:100%; }
   .mlab { font-size:12px; color:var(--dim); display:flex; flex-wrap:wrap; gap:8px; }
+  #courts > * { min-width:0; }
+  .v3line { display:flex; flex-wrap:nowrap; gap:12px; align-items:center; margin-top:6px; overflow-x:auto; white-space:nowrap; font-size:13px; }
+  .v3line label { display:flex; gap:4px; align-items:center; }
+  #v3legend { flex-wrap:wrap; gap:6px; }
+  .jn { font-size:.8em; color:var(--dim); font-variant-numeric:tabular-nums; min-width:1.3em; text-align:right; }
+  .v3line .lg { cursor:pointer; user-select:none; padding:2px 8px; border-radius:999px; border:1px solid var(--line); }
+  .v3line .lg.off { opacity:.35; text-decoration:line-through; }
   .boxwrap { overflow-x:auto; margin-bottom:10px; }
   table.box { border-collapse:collapse; width:100%; font-size:13px; font-variant-numeric:tabular-nums; white-space:nowrap; }
   table.box th, table.box td { padding:5px 7px; text-align:right; border-bottom:1px solid #222836; }
@@ -145,14 +152,13 @@
         <div class="ticks" id="ticks"></div>
         <div class="hint" id="scoreNote" style="text-align:center"></div>
       </div>
-      <div class="panel hide" id="v3" style="grid-column:1/-1;margin-top:0"><div class="row" style="justify-content:space-between">
-          <div class="row" id="v3team"></div>
-          <div class="row" id="v3layers"></div></div>
-        <div id="v3box" style="position:relative;height:min(70vh,620px);margin-top:8px;border-radius:10px;overflow:hidden;background:#120d0a"></div>
-        <div class="legend" style="margin-top:8px">
-          <span><span style="color:#ff7a1a">■</span> made (column height = makes)</span><span><span style="color:#3a8f99">■</span> missed</span>
-          <span><span style="color:#ffd27a">●</span> release point</span><span class="hint">drag to rotate · pinch/scroll to zoom · right-drag to move</span></div>
-        <div class="hint" id="v3note" style="margin-top:6px"></div>
+      <div class="panel hide" id="v3" style="grid-column:1/-1;margin-top:0">
+        <div class="row" id="v3team"></div>
+        <div class="v3line" id="v3layers"></div>
+        <div class="v3line" id="v3legend"></div>
+        <div id="v3box" style="position:relative;height:min(70vh,620px);margin-top:6px;border-radius:10px;overflow:hidden;background:#120d0a"></div>
+        <div class="hint" style="margin-top:6px">drag to rotate · pinch/scroll to zoom · right-drag to move</div>
+        <div class="hint" id="v3note" style="margin-top:4px"></div>
       </div>
       <div id="ct1"></div>
     </div>
@@ -548,7 +554,7 @@ function boxScore() {
       rows.map(([pid, r]) => {
         const nm = (st.names[pid] || ["?"])[0];
         if (r[2]) return `<tr class="dnp"><td>${esc(nm)}</td><td colspan="${cols.length}" style="text-align:left">did not play</td></tr>`;
-        return `<tr class="p ${counted(pid) ? "" : "off"}" data-pid="${pid}"><td>${esc(nm)}${r[1] ? '<span class="st">S</span>' : ""}</td>${cols.map(c => `<td>${esc(r[ix(c)] ?? "")}</td>`).join("")}</tr>`;
+        return `<tr class="p ${counted(pid) ? "" : "off"}" data-pid="${pid}"><td>${jersey(pid)} ${esc(nm)}${r[1] ? '<span class="st">S</span>' : ""}</td>${cols.map(c => `<td>${esc(r[ix(c)] ?? "")}</td>`).join("")}</tr>`;
       }).join("") + `<tr class="tot"><td>Total</td>${tot.map(v => `<td>${v}</td>`).join("")}</tr></table></div>`;
   }).join("");
   $("box").onclick = e => {
@@ -559,13 +565,14 @@ function boxScore() {
 }
 function updateUrlGame() { const g = $("game").value; if (g) history.replaceState(null, "", "?game=" + g); }
 const teamsOf = () => { const g = gameById[$("game").value]; return [g.away, g.home]; };
+const jersey = pid => { const j = (st.names[pid] || [])[2]; return j ? `<span class="jn">${esc(j)}</span>` : ""; };
 function renderPlayers() {
   // in the 3D view only the team on screen is listed, so the list and the 3D court fit together
-  $("players").innerHTML = teamsOf().filter(t => st.view !== "3d" || !v3.team || t === v3.team).map(t => {
+  $("players").innerHTML = teamsOf().filter(t => st.view !== "3d" || !v3.team || v3.team === "both" || t === v3.team).map(t => {
     const ids = [...new Set(shots.filter(s => s.t === t).map(s => s.pid))];
     const rows = ids.map(id => { const n = shots.filter(s => s.pid === id); return { id, name: n[0].p, a: n.length, m: n.filter(s => s.m).length }; })
       .sort((x, y) => y.a - x.a);
-    return `<h4>${t}</h4>` + rows.map(r => `<label><input type="checkbox" value="${r.id}" ${st.sel.has(r.id) ? "checked" : ""}> ${esc(r.name)} <span class="hint">${r.m}/${r.a}</span></label>`).join("");
+    return `<h4>${t}</h4>` + rows.map(r => `<label><input type="checkbox" value="${r.id}" ${st.sel.has(r.id) ? "checked" : ""}>${jersey(r.id)}${esc(r.name)} <span class="hint">${r.m}/${r.a}</span></label>`).join("");
   }).join("");
   $("players").onchange = e => { e.target.checked ? st.sel.add(e.target.value) : st.sel.delete(e.target.value); drawGame(); };
 }
@@ -909,6 +916,7 @@ function drawLoad() {
 // ---------- 3D view (three.js, loaded on first use) ----------
 let HEIGHTS = {}, T3 = null;
 const v3 = { team: null, layers: { cols: true, arcs: true, rel: true, made: true, miss: true } };
+const C3 = [{ made: 0xff7a1a, miss: 0x3a8f99, css: ["#ff7a1a", "#3a8f99"] }, { made: 0xe0457b, miss: 0x8a7fd6, css: ["#e0457b", "#8a7fd6"] }];
 function loadScript(src) { return new Promise((ok, no) => { const e = document.createElement("script"); e.src = src; e.onload = ok; e.onerror = no; document.head.appendChild(e); }); }
 async function ensure3d() {
   if (window.THREE && THREE.OrbitControls) return true;
@@ -986,58 +994,66 @@ async function draw3d(f) {
   if (!(await ensure3d())) return;
   if (!T3) init3d();
   const teams = teamsOf();
-  if (!teams.includes(v3.team)) v3.team = teams[0];
-  chips("v3team", teams.map(t => [t, t]), v3, "team", () => { renderPlayers(); draw3d(currentFiltered()); });
-  $("v3layers").innerHTML = [["cols", "Columns"], ["arcs", "Shot arcs"], ["rel", "Release height"], ["made", "Made"], ["miss", "Missed"]]
-    .map(([k, l]) => `<label style="font-size:13px;display:flex;gap:4px;align-items:center"><input type="checkbox" data-l="${k}" ${v3.layers[k] ? "checked" : ""}>${l}</label>`).join("");
+  if (v3.team !== "both" && !teams.includes(v3.team)) v3.team = teams[0];
+  chips("v3team", teams.map(t => [t, t]).concat([["both", "Both teams"]]), v3, "team", () => { renderPlayers(); draw3d(currentFiltered()); });
+  $("v3layers").innerHTML = [["cols", "Columns (makes)"], ["rel", "Release height"], ["arcs", "Shot arcs"]]
+    .map(([k, l]) => `<label><input type="checkbox" data-l="${k}" ${v3.layers[k] ? "checked" : ""}>${l}</label>`).join("");
   $("v3layers").onchange = e => { v3.layers[e.target.dataset.l] = e.target.checked; draw3d(currentFiltered()); };
-  const list = f.filter(s => s.t === v3.team && Math.abs(s.x) <= 250 && s.y <= 892)
-    .filter(s => (s.m ? v3.layers.made : v3.layers.miss));
-  const full = shots.some(s => s.t === v3.team && s.y > 332);
+  const shown = v3.team === "both" ? teams : [v3.team];
+  $("v3legend").innerHTML = shown.map((t, i) => {
+    const c = C3[v3.team === "both" ? i : 0].css;
+    return `<span class="lg ${v3.layers.made ? "" : "off"}" data-k="made"><span style="color:${c[0]}">■</span> ${v3.team === "both" ? t + " " : ""}made</span>` +
+           `<span class="lg ${v3.layers.miss ? "" : "off"}" data-k="miss"><span style="color:${c[1]}">■</span> ${v3.team === "both" ? t + " " : ""}missed</span>`;
+  }).join("");
+  $("v3legend").onclick = e => { const k = e.target.closest(".lg")?.dataset.k; if (!k) return; v3.layers[k] = !v3.layers[k]; draw3d(currentFiltered()); };
+  const both = v3.team === "both";
+  const full = both || shots.some(s => s.t === v3.team && s.y > 332);
   if (T3.full !== full) buildCourt(full);
   const G = T3.dyn; while (G.children.length) { const c = G.children.pop(); c.geometry && c.geometry.dispose(); }
-  const P = s => [s.x / 10, -s.y / 10];
-  // hexagon bins (1.6 ft): orange columns for makes, flat teal hexes for misses
-  if (v3.layers.cols) {
-    const R = 1.6, w = Math.sqrt(3) * R, bins = {};
-    list.forEach(s => {
-      const [x, z] = P(s), r = Math.round(z / (1.5 * R)), off = (r & 1) ? w / 2 : 0, c = Math.round((x - off) / w), k = r + "," + c;
-      (bins[k] = bins[k] || { x: c * w + off, z: r * 1.5 * R, m: 0, n: 0 }).n++; if (s.m) bins[k].m++;
-    });
-    const made = new THREE.MeshLambertMaterial({ color: 0xff7a1a }), miss = new THREE.MeshLambertMaterial({ color: 0x3a8f99 });
-    Object.values(bins).forEach(b => {
-      if (b.n > b.m) { const m = new THREE.Mesh(new THREE.CylinderGeometry(R * .82, R * .82, 0.25, 6), miss); m.position.set(b.x, 0.13, b.z); G.add(m); }
-      if (b.m) { const h = 1.6 * b.m, m = new THREE.Mesh(new THREE.CylinderGeometry(R * .7, R * .7, h, 6), made); m.position.set(b.x, h / 2 + 0.25, b.z); G.add(m); }
-    });
-  }
-  // release points and arcs to the rim
-  let relSum = 0, relN = 0;
-  list.forEach((s, i) => {
-    const [x, z] = P(s), h = releaseFt(s); relSum += h; relN++;
-    if (v3.layers.rel) {
-      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 8), new THREE.MeshLambertMaterial({ color: 0xffd27a }));
-      dot.position.set(x, h, z); G.add(dot);
-      G.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x, 0, z), new THREE.Vector3(x, h, z)]),
-        new THREE.LineBasicMaterial({ color: 0xffd27a, transparent: true, opacity: .35 })));
+  // court position: the first team shoots at the near basket (z = 0); with both teams the second shoots at the far one
+  const FAR = -84.5;
+  const P = (s, ti) => ti === 1 && both ? [-s.x / 10, FAR + s.y / 10] : [s.x / 10, -s.y / 10];
+  const rimZ = ti => ti === 1 && both ? FAR : 0;
+  let relSum = 0, relN = 0, count = 0;
+  shown.forEach((team, ti) => {
+    const col = C3[both ? ti : 0];
+    const list = f.filter(s => s.t === team && Math.abs(s.x) <= 250 && s.y <= 892).filter(s => (s.m ? v3.layers.made : v3.layers.miss));
+    count += list.length;
+    const mat = {}; const M = c => mat[c] || (mat[c] = new THREE.MeshLambertMaterial({ color: c }));
+    if (v3.layers.cols) {   // hexagon bins (1.6 ft): columns for makes (height = number of makes), flat hexes for misses
+      const R = 1.6, w = Math.sqrt(3) * R, bins = {};
+      list.forEach(s => {
+        const [x, z] = P(s, ti), r = Math.round(z / (1.5 * R)), off = (r & 1) ? w / 2 : 0, c = Math.round((x - off) / w), k = r + "," + c;
+        (bins[k] = bins[k] || { x: c * w + off, z: r * 1.5 * R, m: 0, n: 0 }).n++; if (s.m) bins[k].m++;
+      });
+      Object.values(bins).forEach(b => {
+        if (b.n > b.m) { const m = new THREE.Mesh(new THREE.CylinderGeometry(R * .82, R * .82, 0.25, 6), M(col.miss)); m.position.set(b.x, 0.13, b.z); G.add(m); }
+        if (b.m) { const h = 1.6 * b.m, m = new THREE.Mesh(new THREE.CylinderGeometry(R * .7, R * .7, h, 6), M(col.made)); m.position.set(b.x, h / 2 + 0.25, b.z); G.add(m); }
+      });
     }
-    if (v3.layers.arcs) {
-      const d = Math.hypot(x, z);
-      // misses end a little off the rim, scattered
-      const ex = s.m ? 0 : Math.sin(i * 7.3) * 1.1, ez = s.m ? 0 : Math.cos(i * 3.1) * 1.1;
-      const apex = Math.max(h, 10) + Math.min(8, 1 + d * 0.32);
-      const pts = []; for (let k = 0; k <= 24; k++) {
-        const t = k / 24, px = x + (ex - x) * t, pz = z + (ez - z) * t;
-        const py = (1 - t) * (1 - t) * h + 2 * (1 - t) * t * (2 * apex - (h + 10) / 2) + t * t * 10;
-        pts.push(new THREE.Vector3(px, py, pz));
+    list.forEach((s, i) => {
+      const [x, z] = P(s, ti), h = releaseFt(s); relSum += h; relN++;
+      if (v3.layers.rel) {   // one thin column per shot, as tall as the estimated release height
+        const c = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, h, 6), M(s.m ? col.made : col.miss));
+        c.position.set(x + (v3.layers.cols ? 0.9 : 0), h / 2, z); G.add(c);
       }
-      G.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
-        new THREE.LineBasicMaterial({ color: s.m ? 0xff7a1a : 0x3a8f99, transparent: true, opacity: s.m ? .8 : .45 })));
-    }
+      if (v3.layers.arcs) {
+        const rz = rimZ(ti), d = Math.hypot(x, z - rz);
+        const ex = s.m ? 0 : Math.sin(i * 7.3) * 1.1, ez = rz + (s.m ? 0 : Math.cos(i * 3.1) * 1.1);
+        const apex = Math.max(h, 10) + Math.min(8, 1 + d * 0.32), pts = [];
+        for (let k = 0; k <= 24; k++) {
+          const t = k / 24, py = (1 - t) * (1 - t) * h + 2 * (1 - t) * t * (2 * apex - (h + 10) / 2) + t * t * 10;
+          pts.push(new THREE.Vector3(x + (ex - x) * t, py, z + (ez - z) * t));
+        }
+        G.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+          new THREE.LineBasicMaterial({ color: s.m ? col.made : col.miss, transparent: true, opacity: s.m ? .8 : .45 })));
+      }
+    });
   });
-  const known = new Set(list.filter(s => +HEIGHTS[s.pid]).map(s => s.pid)).size, all = new Set(list.map(s => s.pid)).size;
-  $("v3note").innerHTML = `${list.length} shots by ${v3.team}. <b>Release heights are estimates</b> from each player's height and the shot type ` +
-    `(no public data measures the real release). Mean estimated release ${relN ? (relSum / relN * 0.3048).toFixed(2) + " m" : "–"}. ` +
-    `Player heights known for ${known} of ${all} players${known < all ? " (others use 2.01 m)" : ""}. Arcs are drawn, not tracked.`;
+  const ids = new Set(f.filter(s => shown.includes(s.t)).map(s => s.pid)), known = [...ids].filter(id => +HEIGHTS[id]).length;
+  $("v3note").innerHTML = `${count} shots${both ? "" : " by " + v3.team}. <b>Release heights are estimates</b> from each player's height and the shot type ` +
+    `(no public data measures the real release): mean ${relN ? (relSum / relN * 0.3048).toFixed(2) + " m" : "–"}. ` +
+    `Heights known for ${known} of ${ids.size} players${known < ids.size ? " (others use 2.01 m)" : ""}. Arcs are drawn, not tracked.`;
 }
 function currentFiltered() {
   return shots.filter(s => s.e <= st.t && st.sel.has(s.pid) && qOk(s.q, st.q) && (st.r === "all" || (st.r === "made") === !!s.m));
