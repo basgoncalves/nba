@@ -210,7 +210,8 @@
     <div class="cards" id="lCards"></div>
     <div class="panel"><h4>Load over the game <span class="hint">(per 10 s of game clock · dashed = cumulative)</span></h4><div id="lTime"></div></div>
     <div class="panel"><h4>Per quarter</h4><div id="lQ"></div></div>
-    <div class="courts" id="lCourts"></div>
+    <div class="hint" style="margin-top:10px">Court maps: each player's team attacks the right-hand basket. Teams switch ends at half-time, so the second half is mirrored to match.</div>
+    <div class="courts" id="lCourts" style="margin-top:6px"></div>
     <div class="panel"><h4>Force direction <span class="hint">(load-weighted mean)</span></h4><div id="lDir" class="dirs"></div></div>
     <div class="panel"><h4>Muscle contributions to joint moments</h4><div id="lMus"></div></div>
     <div class="panel"><h4>Movement mix (steps)</h4><div id="lPh"></div></div>
@@ -880,10 +881,12 @@ function drawLoad() {
     cx.putImageData(img, 0, 0);
     const s = 'stroke="#ffffff88" stroke-width=".08" fill="none"';
     return `<div class="court ${k}"><h3>${esc(p.n)} <span class="hint">${esc(m.grid.label)}</span></h3>
-      <svg viewBox="-0.3 -1.6 29.25 17.1"><image href="${cv.toDataURL()}" x="0" y="0" width="${cw}" height="${ch}" preserveAspectRatio="none" style="filter:blur(.6px)"/>
+      <svg viewBox="-0.3 -1.6 29.25 18.6"><image href="${cv.toDataURL()}" x="0" y="0" width="${cw}" height="${ch}" preserveAspectRatio="none" style="filter:blur(.6px)"/>
       <rect x="0" y="0" width="28.65" height="15.24" ${s}/><line x1="14.325" y1="0" x2="14.325" y2="15.24" ${s}/><circle cx="14.325" cy="7.62" r="1.83" ${s}/>
       <rect x="0" y="5.18" width="5.79" height="4.88" ${s}/><rect x="22.86" y="5.18" width="5.79" height="4.88" ${s}/>
-      <path d="M0 0.9 L4.27 0.9 A7.24 7.24 0 0 1 4.27 14.34 L0 14.34" ${s}/><path d="M28.65 0.9 L24.38 0.9 A7.24 7.24 0 0 0 24.38 14.34 L28.65 14.34" ${s}/></svg></div>`;
+      <path d="M0 0.9 L4.27 0.9 A7.24 7.24 0 0 1 4.27 14.34 L0 14.34" ${s}/><path d="M28.65 0.9 L24.38 0.9 A7.24 7.24 0 0 0 24.38 14.34 L28.65 14.34" ${s}/>
+      <g fill="#fff" opacity=".85"><path d="M11.3 16.2 H16.6" stroke="#fff" stroke-width=".12"/><path d="M16.9 16.2 l-.6 -.35 v.7 z"/>
+      <text x="11.1" y="16.45" font-size=".75" text-anchor="end">defending</text><text x="17.2" y="16.45" font-size=".75">attacking</text></g></svg></div>`;
   }).join("");
   // directions
   const arrow = (v, label, k) => {

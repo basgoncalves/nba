@@ -54,6 +54,44 @@ def per_step(ph, v, a):
     return {k: max(0.0, c[k][0] + c[k][1] * v + c[k][2] * a) for k in OUTS}
 
 
+def attack_dirs(d, meta):
+    """Which basket each team attacks in this quarter: +1 = right (x = 27.05 m), -1 = left (x = 1.6 m).
+    A shot = the ball above 3 m within 1.5 m of a rim; the shooter's team = the player nearest the ball 1 s before."""
+    rims = {1: 27.05, -1: 1.6}
+    votes, last = {}, -999
+    players = d["players"]
+    for i, b in enumerate(d["ball"]):
+        if b == -1 or i - last < 50:
+            continue
+        bx, by, bz = b[0] / 10, b[1] / 10, b[2] / 10
+        side = next((k for k, rx in rims.items() if bz > 3.0 and (bx - rx) ** 2 + (by - 7.62) ** 2 < 1.5 ** 2), None)
+        if side is None:
+            continue
+        j = max(0, i - 25)
+        bj = d["ball"][j]
+        if bj == -1:
+            continue
+        best, bd = None, 9e9
+        for pid, rows in players.items():
+            r = rows[j]
+            if r == -1:
+                continue
+            dd = (r[0] - bj[0]) ** 2 + (r[1] - bj[1]) ** 2
+            if dd < bd:
+                best, bd = pid, dd
+        t = meta["players"].get(best, {}).get("t")
+        if t:
+            votes.setdefault(t, {1: 0, -1: 0})[side] += 1
+            last = i
+    teams = [meta["home"], meta["away"]]
+    out = {t: (1 if v[1] >= v[-1] else -1) for t, v in votes.items() if v[1] != v[-1]}
+    for t in teams:   # a team with no clear votes attacks the other end from its opponent
+        if t not in out:
+            o = [x for x in teams if x != t][0]
+            out[t] = -out[o] if o in out else 1
+    return out
+
+
 def game(gid):
     folder = os.path.join(HERE, gid)
     meta = json.load(open(os.path.join(folder, "meta.json")))
@@ -62,9 +100,12 @@ def game(gid):
     for q in quarters:
         d = json.load(open(os.path.join(folder, f"q{q}.json")))
         fidx, clock = d["f"], d["clock"]
+        dirs = attack_dirs(d, meta)
+        print(f"  Q{q}: attacking right = {[t for t, v in dirs.items() if v == 1]}")
         qlen = 720 if q <= 4 else 300
         qstart = (q - 1) * 720 if q <= 4 else 2880 + (q - 5) * 300
         for pid, rows in d["players"].items():
+            flip = dirs.get(meta["players"].get(pid, {}).get("t"), 1) == -1   # mirror so the player's team attacks right
             P = res.setdefault(pid, {
                 "steps": {p: 0 for p in PHASES}, "sum": {k: 0.0 for k in OUTS}, "max": {k: 0.0 for k in OUTS},
                 "q": {}, "bins": {}, "grid": {k: [0.0] * (CW * CH) for k in OUTS},
@@ -101,7 +142,8 @@ def game(gid):
                 vc = min(v, V_CAP)
                 t = qstart + (qlen - clock[i]) if clock[i] >= 0 else qstart
                 kb = K["bins"].setdefault(str(int(t // BIN)), {"d": 0.0, "t": 0.0, "vmax": 0.0, "amax": 0.0, "dmax": 0.0, "na": 0, "nd": 0})
-                cell = min(CH - 1, max(0, int(y / CELL))) * CW + min(CW - 1, max(0, int(x / CELL)))
+                mx, my = (28.65 - x, 15.24 - y) if flip else (x, y)
+                cell = min(CH - 1, max(0, int(my / CELL))) * CW + min(CW - 1, max(0, int(mx / CELL)))
                 for o in (K, KQ):
                     o["dist"] += vc * dt; o["time"] += dt
                     o["vmax"] = max(o["vmax"], vc)
@@ -136,7 +178,8 @@ def game(gid):
                     t = qstart + (qlen - clock[i]) if clock[i] >= 0 else qstart
                     b = P["bins"].setdefault(str(int(t // BIN)), {"n": 0, **{k: 0.0 for k in OUTS}, **{k + "_max": 0.0 for k in OUTS}})
                     b["n"] += 1
-                    cell = min(CH - 1, max(0, int(y / CELL))) * CW + min(CW - 1, max(0, int(x / CELL)))
+                    mx, my = (28.65 - x, 15.24 - y) if flip else (x, y)
+                    cell = min(CH - 1, max(0, int(my / CELL))) * CW + min(CW - 1, max(0, int(mx / CELL)))
                     for k, val in L.items():
                         P["sum"][k] += val; Q["sum"][k] += val; b[k] += val
                         P["max"][k] = max(P["max"][k], val); Q["max"][k] = max(Q["max"][k], val)
@@ -193,7 +236,7 @@ def game(gid):
             },
         }
     out = {"id": gid, "date": meta["date"], "home": meta["home"], "away": meta["away"],
-           "bin": BIN, "grid": [CW, CH, CELL], "library": {"version": LIB["version"], "status": LIB["status"], "note": LIB["note"]},
+           "bin": BIN, "orientation": "each player's team attacks the right-hand basket (halves mirrored)", "grid": [CW, CH, CELL], "library": {"version": LIB["version"], "status": LIB["status"], "note": LIB["note"]},
            "outputs": {**KIN_OUTPUTS, **LIB["outputs"]}, "frames": LIB["frames"], "players": players}
     os.makedirs(os.path.join(HERE, "load"), exist_ok=True)
     path = os.path.join(HERE, "load", f"{gid}.json")
