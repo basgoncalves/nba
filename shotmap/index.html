@@ -50,6 +50,21 @@
   .court h3 .hint { font-weight:500; }
   .court svg { width:100%; height:auto; display:block; }
   @media (max-width:640px) {
+    .wrap { padding:0 10px 24px; }
+    header { padding:10px 10px 4px; } h1 { font-size:19px; } .tabs { margin:6px 0 8px; flex-wrap:wrap; }
+    .tabs button { padding:6px 12px; font-size:13px; }
+    .controls { padding:8px; gap:6px; }
+    .row { gap:4px; } .row > .lbl { min-width:46px; font-size:12px; }
+    button.chip { padding:4px 9px; font-size:12px; }
+    select { padding:7px; font-size:14px; }
+    .players { grid-template-columns:repeat(3,minmax(0,1fr)); gap:1px 6px; margin-top:4px; }
+    .players label { font-size:11.5px; gap:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .players label input { width:13px; height:13px; margin:0; flex:none; }
+    .players h4 { margin:4px 0 0; font-size:12px; }
+    #v3 { padding:8px; } #v3layers label { font-size:12px !important; }
+    #v3box { height:48vh !important; margin-top:4px !important; }
+    body.three #cmpBtn, body.three #cmpHint, body.three #all, body.three #none { display:none; }
+    body.three .mid { padding:4px 10px; gap:2px; } body.three .ticks { display:none; }
     .court { padding:6px; }
     .court h3 { top:8px; font-size:14px; } .court .stat { top:27px; font-size:10.5px; }
     .courts { gap:8px; margin-top:8px; }
@@ -352,7 +367,7 @@ async function init() {
 
   chips("quarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], st, "q", drawGame);
   chips("results", [["all","All"],["made","Made"],["miss","Missed"]], st, "r", drawGame);
-  chips("views", [["2d","2D courts"],["3d","3D view"]], st, "view", drawGame);
+  chips("views", [["2d","2D courts"],["3d","3D view"]], st, "view", () => { renderPlayers(); drawGame(); });
   try { HEIGHTS = await getJSON("raw/heights.json"); } catch { HEIGHTS = {}; }
   chips("scopes", [["game","Per game"],["season","Season"],["career","Career"]], cs, "scope", () => { syncScope(); drawCmp(); });
   chips("cQuarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], cs, "q", drawCmp);
@@ -545,7 +560,8 @@ function boxScore() {
 function updateUrlGame() { const g = $("game").value; if (g) history.replaceState(null, "", "?game=" + g); }
 const teamsOf = () => { const g = gameById[$("game").value]; return [g.away, g.home]; };
 function renderPlayers() {
-  $("players").innerHTML = teamsOf().map(t => {
+  // in the 3D view only the team on screen is listed, so the list and the 3D court fit together
+  $("players").innerHTML = teamsOf().filter(t => st.view !== "3d" || !v3.team || t === v3.team).map(t => {
     const ids = [...new Set(shots.filter(s => s.t === t).map(s => s.pid))];
     const rows = ids.map(id => { const n = shots.filter(s => s.pid === id); return { id, name: n[0].p, a: n.length, m: n.filter(s => s.m).length }; })
       .sort((x, y) => y.a - x.a);
@@ -573,6 +589,7 @@ function drawGame() {
   }).forEach((html, i) => $("ct" + i).outerHTML = html.replace('<div class=', `<div id="ct${i}" class=`));
   legend();
   const three = st.view === "3d";
+  document.body.classList.toggle("three", three);
   $("v3").classList.toggle("hide", !three);
   ["ct0", "ct1"].forEach(id => $(id).classList.toggle("hide", three));
   if (three) draw3d(f);
@@ -961,13 +978,16 @@ function buildCourt(full) {
   if (full) { line([[-25, base - 47], [25, base - 47]]); line(arc(0, base - 47, 6, 0, 2 * Math.PI)); half(-1, base - 94 + base); }
   else line(arc(0, base - 47, 6, Math.PI, 2 * Math.PI));
   T3.full = full;
+  const far = T3.cam.aspect < 1 ? 1.8 : 1, tz = full ? -36 : -14;
+  T3.ctl.target.set(0, 2, tz);
+  T3.cam.position.set(30 * far, (full ? 44 : 34) * far, tz + 44 * far);
 }
 async function draw3d(f) {
   if (!(await ensure3d())) return;
   if (!T3) init3d();
   const teams = teamsOf();
   if (!teams.includes(v3.team)) v3.team = teams[0];
-  chips("v3team", teams.map(t => [t, t]), v3, "team", () => draw3d(currentFiltered()));
+  chips("v3team", teams.map(t => [t, t]), v3, "team", () => { renderPlayers(); draw3d(currentFiltered()); });
   $("v3layers").innerHTML = [["cols", "Columns"], ["arcs", "Shot arcs"], ["rel", "Release height"], ["made", "Made"], ["miss", "Missed"]]
     .map(([k, l]) => `<label style="font-size:13px;display:flex;gap:4px;align-items:center"><input type="checkbox" data-l="${k}" ${v3.layers[k] ? "checked" : ""}>${l}</label>`).join("");
   $("v3layers").onchange = e => { v3.layers[e.target.dataset.l] = e.target.checked; draw3d(currentFiltered()); };
