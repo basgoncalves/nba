@@ -89,6 +89,10 @@
   #tip { position:fixed; pointer-events:none; background:#000d; padding:6px 8px; border-radius:6px; font-size:12px; display:none; z-index:5; }
   footer { text-align:center; color:var(--dim); font-size:12px; margin-top:24px; }
   .hide { display:none !important; }
+  button.info { flex:none; width:24px; height:24px; border-radius:50%; border:1px solid var(--line); background:var(--panel2); color:var(--accent);
+    font:italic 700 13px Georgia, serif; cursor:pointer; padding:0; }
+  .infobox { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:12.5px; color:var(--dim); margin-top:6px; }
+  #loadView .controls select { min-width:0; }
   .warn { background:#3a2a0a; color:#ffd58a; border:1px solid #6b4e12; border-radius:10px; padding:10px 12px; font-size:13px; margin-bottom:10px; }
   .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-top:12px; }
   .card { background:var(--panel); border-radius:12px; padding:10px 12px; border-top:3px solid var(--a); }
@@ -201,23 +205,26 @@
 
   <!-- ============ LOAD VIEW ============ -->
   <section id="loadView" class="hide">
-    <div class="warn" id="lWarn"></div>
     <div class="controls">
-      <select id="lGame"></select>
+      <div class="row" style="flex-wrap:nowrap"><select id="lGame"></select><button class="info" data-for="iModel" aria-label="About these estimates">i</button></div>
+      <div class="infobox hide" id="iModel"></div>
       <div class="pick"><select id="lpa"></select><select id="lpb"></select></div>
-      <div class="row"><span class="lbl">Load</span><div id="lOut" class="row"></div></div>
     </div>
+    <div class="panel"><h4>Movement mix <span class="hint">(steps)</span></h4><div id="lPh"></div></div>
+    <div class="controls" style="margin-top:12px"><div class="row"><span class="lbl">Load</span><div id="lOut" class="row"></div></div></div>
     <div class="cards" id="lCards"></div>
-    <div class="panel"><h4>Load over the game <span class="hint">(per 10 s of game clock · dashed = cumulative · tap a moment to zoom in)</span></h4><div id="lTime" style="cursor:crosshair"></div></div>
+    <div class="panel"><div class="row" style="justify-content:space-between"><h4 style="margin:0">Timeline</h4><button class="info" data-for="iTime" aria-label="About the timeline">i</button></div>
+      <div class="infobox hide" id="iTime">Values per 10 seconds of game clock. Tap a moment on the chart to zoom into those 10 seconds: speed, acceleration, movement type and every step.</div>
+      <div class="mlab" id="lTimeLegend" style="margin:6px 0 2px"></div>
+      <div id="lTime" style="cursor:crosshair"></div></div>
     <div class="panel hide" id="lZoom"><div class="row" style="justify-content:space-between"><h4 id="lzTitle" style="margin:0"></h4>
       <div class="row"><button class="chip" id="lzPrev">◀ 10 s</button><button class="chip" id="lzNext">10 s ▶</button><button class="chip" id="lzClose">✕</button></div></div>
       <div id="lzBody"></div></div>
     <div class="panel"><h4>Per quarter</h4><div id="lQ"></div></div>
-    <div class="hint" style="margin-top:10px">Court maps: each player's team attacks the right-hand basket. Teams switch ends at half-time, so the second half is mirrored to match.</div>
+    <div class="row" style="justify-content:flex-end;margin-top:10px"><span class="hint">Court maps</span><button class="info" data-for="iCourt" aria-label="About the court maps">i</button></div>
+    <div class="infobox hide" id="iCourt">Each player's team attacks the right-hand basket. Teams switch ends at half-time, so the second half is mirrored to match.</div>
     <div class="courts" id="lCourts" style="margin-top:6px"></div>
-    <div class="panel"><h4>Force direction <span class="hint">(load-weighted mean)</span></h4><div id="lDir" class="dirs"></div></div>
     <div class="panel"><h4>Muscle contributions to joint moments</h4><div id="lMus"></div></div>
-    <div class="panel"><h4>Movement mix (steps)</h4><div id="lPh"></div></div>
     <div class="panel"><h4>Highest ACL-load moments</h4><table class="zones" id="lTop"></table></div>
   </section>
 
@@ -796,7 +803,7 @@ async function loadLoadGame() {
   $("lpa").innerHTML = opts; $("lpb").innerHTML = `<option value="">— compare with… —</option>` + opts;
   ls.a = ps[0][0]; ls.b = ""; $("lpa").value = ls.a; $("lpb").value = "";
   chips("lOut", Object.entries(L.outputs).map(([k, o]) => [k, o.label.replace(/ \(.*\)/, "").replace(" contact force", "")]), ls, "out", drawLoad);
-  $("lWarn").innerHTML = L.library.status === "placeholder"
+  $("iModel").innerHTML = L.library.status === "placeholder"
     ? `<b>Model estimates with placeholder coefficients.</b> Movement (speed, acceleration, cuts, steps) comes from SportVU tracking; the load per step comes from a task library that still uses rough literature-range values, not BioScout simulations. Use for relative comparisons only. Jumps and landings are not included yet.`
     : `Loads estimated with BioScout task library v${L.library.version}.`;
   drawLoad();
@@ -844,7 +851,9 @@ function drawLoad() {
   $("lCards").innerHTML = ms.map(({ k, p, m }) => {
     const tot = m.bands ? Object.values(m.bands).reduce((a, b) => a + b, 0) || 1 : 0;
     return `<div class="card ${k}"><div class="lab">${esc(p.n)} · ${p.t}</div>
-      <div class="big">${m.big}</div><div class="lab">${m.lab}</div><div class="lab">${m.sub}</div>
+      <div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div><div class="big">${m.big}</div><div class="lab">${m.lab}</div></div>
+        <button class="info" data-for="iCard${k}" aria-label="Details">i</button></div>
+      <div class="infobox hide" id="iCard${k}">${m.sub}</div>
       ${m.bands ? `<div class="bar" style="margin-top:6px">${Object.entries(m.bands).map(([b, v]) => `<span style="width:${100 * v / tot}%;background:${BANDC[b]}" title="${b} ${v} m"></span>`).join("")}</div>
       <div class="mlab">${Object.entries(m.bands).map(([b, v]) => `<span><span style="color:${BANDC[b]}">■</span> ${b} ${v} m</span>`).join("")}</div>` : ""}</div>`;
   }).join("");
@@ -860,9 +869,11 @@ function drawLoad() {
     svg += `<path d="${s.v.map((v, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Yv(v).toFixed(1)).join("")}" fill="none" stroke="${col(s.k)}" stroke-width="1.6" opacity=".9"/>`;
     if (s.cum) svg += `<path d="${s.c.map((v, i) => (i ? "L" : "M") + X(i).toFixed(1) + " " + Yc(v).toFixed(1)).join("")}" fill="none" stroke="${col(s.k)}" stroke-width="2" stroke-dasharray="6 4"/>`;
   });
-  svg += `<text x="${pad}" y="10" fill="var(--dim)" font-size="11">${ms[0] ? ms[0].m.yl : ""}</text></svg>`;
+  svg += `</svg>`;
   if (ls.zbin !== null) svg = svg.replace("</svg>", `<rect x="${X(ls.zbin) - 3}" y="10" width="6" height="${H - 32}" fill="#fff" opacity=".25"/></svg>`);
   $("lTime").innerHTML = svg; ls.nb = nb;
+  $("lTimeLegend").innerHTML = ms.map(({ k, p }) => `<span><span style="color:${col(k)}">■</span> ${esc(p.n)}</span>`).join("") +
+    `<span>── ${ms[0] && ms[0].m.cum ? "per 10 s" : "10 s peak"}</span>` + (ms[0] && ms[0].m.cum ? `<span>- - - cumulative</span>` : "");
   $("lTime").onclick = e => {
     const r = $("lTime").querySelector("svg").getBoundingClientRect(), x = (e.clientX - r.left) / r.width * W;
     showZoom(Math.max(0, Math.min(nb - 1, Math.round((x - pad) / (W - pad - 8) * (nb - 1)))));
@@ -900,17 +911,6 @@ function drawLoad() {
       <g fill="#fff" opacity=".85"><path d="M11.3 16.2 H16.6" stroke="#fff" stroke-width=".12"/><path d="M16.9 16.2 l-.6 -.35 v.7 z"/>
       <text x="11.1" y="16.45" font-size=".75" text-anchor="end">defending</text><text x="17.2" y="16.45" font-size=".75">attacking</text></g></svg></div>`;
   }).join("");
-  // directions
-  const arrow = (v, label, k) => {
-    const ang = Math.atan2(v[0], v[1]) * 180 / Math.PI, fr = Math.atan2(v[2], v[1]) * 180 / Math.PI;
-    const ax = 60 + 45 * v[0], ay = 60 - 45 * v[1], bx = 60 + 45 * v[2], by = 60 - 45 * v[1];
-    return `<div><div class="hint">${label}</div><svg viewBox="0 0 240 125">
-      <text x="60" y="122" fill="var(--dim)" font-size="10" text-anchor="middle">sagittal (ant →)</text><text x="180" y="122" fill="var(--dim)" font-size="10" text-anchor="middle">frontal (lat →)</text>
-      <circle cx="60" cy="60" r="46" stroke="var(--line)" fill="none"/><circle cx="180" cy="60" r="46" stroke="var(--line)" fill="none"/>
-      <line x1="60" y1="60" x2="${ax}" y2="${ay}" stroke="${col(k)}" stroke-width="3"/><line x1="180" y1="60" x2="${120 + bx}" y2="${by}" stroke="${col(k)}" stroke-width="3"/>
-      <text x="60" y="10" fill="var(--text)" font-size="10" text-anchor="middle">${ang.toFixed(0)}° from vertical</text><text x="180" y="10" fill="var(--text)" font-size="10" text-anchor="middle">${fr.toFixed(0)}° from vertical</text></svg></div>`;
-  };
-  $("lDir").innerHTML = sides.map(({ k, p }) => arrow(p.dir.knee, `${esc(p.n)} · knee contact (tibia frame)`, k) + arrow(p.dir.hip, `${esc(p.n)} · hip contact (pelvis frame)`, k)).join("");
   // muscle contributions
   const MOM = { hip_ext: "Hip extension", knee_ext: "Knee extension", knee_flex: "Knee flexion", ankle_pf: "Ankle plantarflexion" };
   $("lMus").innerHTML = sides.map(({ k, p }) => `<div class="hint" style="color:${col(k)}">${esc(p.n)}</div>` + Object.entries(MOM).map(([m, lab]) => {
@@ -1114,6 +1114,8 @@ function drawZoom() {
     return `<div style="color:${col};font-size:13px;margin-top:8px">${esc(p.n)} · ${z.steps.length} steps · top speed ${vmax.toFixed(1)} m/s · ${o.unit === "%" ? "peak " + mx.toFixed(1) + "%" : "load " + sum.toFixed(1) + " " + o.unit}</div>${g}`;
   }).join("") + `<div class="mlab" style="margin-top:4px">${["walk", "jog", "run", "sprint", "accel", "decel", "cut"].map((h, i) => `<span><span style="color:${PC[i]}">■</span> ${h}</span>`).join("")}</div>`;
 }
+
+document.addEventListener("click", e => { const b = e.target.closest("button.info"); if (b) $(b.dataset.for).classList.toggle("hide"); });
 
 // ---------- tooltip ----------
 document.addEventListener("pointermove", e => {
