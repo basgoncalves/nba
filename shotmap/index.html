@@ -121,15 +121,6 @@
         <div class="players" id="players"></div>
       </details>
     </div>
-    <div class="panel hide" id="v3"><div class="row" style="justify-content:space-between">
-        <div class="row" id="v3team"></div>
-        <div class="row" id="v3layers"></div></div>
-      <div id="v3box" style="position:relative;height:min(70vh,620px);margin-top:8px;border-radius:10px;overflow:hidden;background:#120d0a"></div>
-      <div class="legend" style="margin-top:8px">
-        <span><span style="color:#ff7a1a">■</span> made (column height = makes)</span><span><span style="color:#3a8f99">■</span> missed</span>
-        <span><span style="color:#ffd27a">●</span> release point</span><span class="hint">drag to rotate · pinch/scroll to zoom · right-drag to move</span></div>
-      <div class="hint" id="v3note" style="margin-top:6px"></div>
-    </div>
     <div class="courts" id="courts">
       <div id="ct0"></div>
       <div class="mid" id="mid">
@@ -138,6 +129,15 @@
         <div class="bar"><button id="play" aria-label="Play">▶</button><input type="range" id="time" min="0" max="2880" step="5" value="2880" aria-label="Game time"><button id="toEnd">End</button></div>
         <div class="ticks" id="ticks"></div>
         <div class="hint" id="scoreNote" style="text-align:center"></div>
+      </div>
+      <div class="panel hide" id="v3" style="grid-column:1/-1;margin-top:0"><div class="row" style="justify-content:space-between">
+          <div class="row" id="v3team"></div>
+          <div class="row" id="v3layers"></div></div>
+        <div id="v3box" style="position:relative;height:min(70vh,620px);margin-top:8px;border-radius:10px;overflow:hidden;background:#120d0a"></div>
+        <div class="legend" style="margin-top:8px">
+          <span><span style="color:#ff7a1a">■</span> made (column height = makes)</span><span><span style="color:#3a8f99">■</span> missed</span>
+          <span><span style="color:#ffd27a">●</span> release point</span><span class="hint">drag to rotate · pinch/scroll to zoom · right-drag to move</span></div>
+        <div class="hint" id="v3note" style="margin-top:6px"></div>
       </div>
       <div id="ct1"></div>
     </div>
