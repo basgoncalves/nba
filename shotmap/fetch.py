@@ -21,6 +21,7 @@ from datetime import date, timedelta
 FIRST_SEASON_START = date(2009, 10, 1)   # 2009-10 season onwards
 ESPN = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba"
 KEEP_TYPES = {2: "Regular", 3: "Playoffs", 5: "Play-in"}
+PRIORITY_SEASONS = {"2015-16"}   # downloaded before everything else (tracking calibration season)
 VERSION = 4   # bump when the file layout changes: older files are downloaded again
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/130.0 Safari/537.36")
@@ -82,9 +83,12 @@ for season in os.listdir("raw"):
                 if "box" not in g0 or any(len(v) < 3 for v in g0.get("names", {}).values()):   # no box score / jersey numbers yet: download again
                     refresh.append({k: g0[k] for k in ("id", "date", "season", "type", "home", "away", "hs", "as")})
 
-scanned = set(load_json("raw/scanned_days.json", []))
+# Days are marked as scanned once their games are listed; listed games that are not downloaded yet stay in
+# raw/pending.json until they are (v2: the first version lost games that did not finish in the same run).
+scanned = set(load_json("raw/scanned_days_v2.json", []))
+pending = {g["id"]: g for g in load_json("raw/pending.json", []) if g["id"] not in have}
 today = date.today()
-todo = []
+todo = list(pending.values())
 d = today   # newest first, so recent games show up on the page first
 while d >= FIRST_SEASON_START and (time.time() - T0) / 60 < MAX_MINUTES / 2:   # keep half the time for downloads
     key = d.isoformat()
@@ -103,7 +107,7 @@ while d >= FIRST_SEASON_START and (time.time() - T0) / 60 < MAX_MINUTES / 2:   #
         if not e["status"]["type"].get("completed"):
             all_done = False
             continue
-        if st not in KEEP_TYPES or e["id"] in have:
+        if st not in KEEP_TYPES or e["id"] in have or e["id"] in pending:
             continue
         c = {t["homeAway"]: t for t in e["competitions"][0]["competitors"]}
         todo.append({"id": e["id"], "date": e["date"], "season": season_label(e["season"]["year"]),
@@ -113,7 +117,7 @@ while d >= FIRST_SEASON_START and (time.time() - T0) / 60 < MAX_MINUTES / 2:   #
     if all_done and d < today - timedelta(days=1):
         scanned.add(key)
     d -= timedelta(days=1)
-json.dump(sorted(scanned), open("raw/scanned_days.json", "w"), separators=(",", ":"))
+json.dump(sorted(scanned), open("raw/scanned_days_v2.json", "w"), separators=(",", ":"))
 print(f"{len(have)} games already saved, {len(todo)} to download")
 
 
@@ -185,8 +189,8 @@ def download(g):
 ids = {t["id"] for t in todo}
 todo += [g for g in refresh if g["id"] not in ids]
 print(f"{len(refresh)} saved games get their box score added")
-n = 0
-for g in sorted(todo, key=lambda g: g["date"], reverse=True):   # newest first
+n, saved = 0, set()
+for g in sorted(todo, key=lambda g: (g["season"] in PRIORITY_SEASONS, g["date"]), reverse=True):   # newest first
     if out_of_time():
         print("time limit reached; the next run continues from here")
         break
@@ -194,14 +198,20 @@ for g in sorted(todo, key=lambda g: g["date"], reverse=True):   # newest first
         data = download(g)
     except Exception as e:
         print("skip", g["id"], e)
+        g["tries"] = g.get("tries", 0) + 1
         continue
     os.makedirs(f"raw/{g['season']}", exist_ok=True)
     json.dump(data, open(f"raw/{g['season']}/{g['id']}.json", "w"), separators=(",", ":"))
     n += 1
+    saved.add(g["id"])
     if n % 100 == 1:
         print(f"[{n}/{len(todo)}] {g['date'][:10]} {g['away']}@{g['home']}: {len(data['shots'])} shots")
     time.sleep(0.1)
 print(f"downloaded {n} games in {(time.time() - T0) / 60:.1f} min")
+# keep what is still to do (new games, not refreshes of saved ones); give up on a game after 3 failed tries
+left = [g for g in todo if g["id"] not in saved and g["id"] not in have and g.get("tries", 0) < 3]
+json.dump(left, open("raw/pending.json", "w"), separators=(",", ":"))
+print(f"{len(left)} games pending for the next run")
 
 
 # ---------------------------------------------------------------- player heights (for the 3D view)
