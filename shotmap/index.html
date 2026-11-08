@@ -91,6 +91,7 @@
   .hide { display:none !important; }
   button.info { flex:none; width:24px; height:24px; border-radius:50%; border:1px solid var(--line); background:var(--panel2); color:var(--accent);
     font:italic 700 13px Georgia, serif; cursor:pointer; padding:0; }
+  button.info.warnbtn { font:15px sans-serif; border-color:#6b4e12; background:#3a2a0a; }
   .infobox { background:var(--panel2); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:12.5px; color:var(--dim); margin-top:6px; }
   #loadView .controls select { min-width:0; }
   .warn { background:#3a2a0a; color:#ffd58a; border:1px solid #6b4e12; border-radius:10px; padding:10px 12px; font-size:13px; margin-bottom:10px; }
@@ -161,8 +162,9 @@
         <div class="v3line" id="v3layers"></div>
         <div class="v3line" id="v3legend"></div>
         <div id="v3box" style="position:relative;height:min(70vh,620px);margin-top:6px;border-radius:10px;overflow:hidden;background:#120d0a"></div>
-        <div class="hint" style="margin-top:6px">drag to rotate · pinch/scroll to zoom · right-drag to move</div>
-        <div class="hint" id="v3note" style="margin-top:4px"></div>
+        <div class="row" style="justify-content:space-between;margin-top:6px;flex-wrap:nowrap"><span class="hint">drag to rotate · pinch to zoom · two fingers to move</span>
+          <button class="info warnbtn" data-for="v3note" aria-label="About release heights" title="Estimates">⚠️</button></div>
+        <div class="infobox hide" id="v3note"></div>
       </div>
       <div id="ct1"></div>
     </div>
@@ -206,12 +208,14 @@
   <!-- ============ LOAD VIEW ============ -->
   <section id="loadView" class="hide">
     <div class="controls">
-      <div class="row" style="flex-wrap:nowrap"><select id="lGame"></select><button class="info" data-for="iModel" aria-label="About these estimates">i</button></div>
+      <div class="row" style="flex-wrap:nowrap"><select id="lGame"></select><button class="info warnbtn" data-for="iModel" aria-label="About these estimates" title="Model estimates">⚠️</button></div>
       <div class="infobox hide" id="iModel"></div>
       <div class="pick"><select id="lpa"></select><select id="lpb"></select></div>
     </div>
     <div class="panel"><h4>Movement mix <span class="hint">(steps)</span></h4><div id="lPh"></div></div>
     <div class="controls" style="margin-top:12px"><div class="row"><span class="lbl">Load</span><div id="lOut" class="row"></div></div></div>
+    <div id="l3d" class="hide" style="margin-top:12px"><div class="hint" id="l3dNote"></div></div>
+    <div id="lMain">
     <div class="cards" id="lCards"></div>
     <div class="panel"><div class="row" style="justify-content:space-between"><h4 style="margin:0">Timeline</h4><button class="info" data-for="iTime" aria-label="About the timeline">i</button></div>
       <div class="infobox hide" id="iTime">Values per 10 seconds of game clock. Tap a moment on the chart to zoom into those 10 seconds: speed, acceleration, movement type and every step.</div>
@@ -226,6 +230,7 @@
     <div class="courts" id="lCourts" style="margin-top:6px"></div>
     <div class="panel"><h4>Muscle contributions to joint moments</h4><div id="lMus"></div></div>
     <div class="panel"><h4>Highest ACL-load moments</h4><table class="zones" id="lTop"></table></div>
+    </div>
   </section>
 
   <div class="legend" id="legDots"><span><svg width="12" height="12"><circle cx="6" cy="6" r="5" fill="var(--made)"/></svg> Made</span><span><svg width="12" height="12"><path d="M2 2L10 10M10 2L2 10" stroke="var(--miss)" stroke-width="2"/></svg> Missed</span></div>
@@ -369,7 +374,7 @@ async function init() {
   try { players = await getJSON("data/players.json"); } catch { players = []; }
   await initLoad();
   $("tabLoad").onclick = async () => { show("load"); if (!ls.data) await loadLoadGame(); };
-  $("tabGame").onclick = () => show("game");
+  $("tabGame").onclick = () => { v3Home(); show("game"); drawGame(); };
   if (new URLSearchParams(location.search).get("view") === "load" && ls.games.length) { show("load", true); await loadLoadGame(); }
   if (!games.length) { $("sub").textContent = "No games yet — run the “Update shot map data” action."; return; }
   const seasonOf = d => { const t = new Date(d), y = t.getUTCFullYear() + (t.getUTCMonth() >= 8 ? 1 : 0); return `${y - 1}-${String(y).slice(2)}`; };
@@ -420,7 +425,7 @@ async function init() {
     $("play").textContent = "❚❚";
     st.timer = setInterval(() => { if (st.t >= st.max) return stopPlay(); setTime(st.t + 15); }, 60);
   };
-  $("tabGame").onclick = () => show("game");
+  $("tabGame").onclick = () => { v3Home(); show("game"); drawGame(); };
   $("tabCmp").onclick = () => { show("cmp"); if (!cs.a && !cs.b) defaultCompare(); };
   $("cSeason").onchange = () => { syncScope(); drawCmp(); };
   for (const k of ["a", "b"]) {
@@ -802,7 +807,7 @@ async function loadLoadGame() {
   const opts = ps.map(([id, p]) => `<option value="${id}">${esc(p.n)} (${p.t})</option>`).join("");
   $("lpa").innerHTML = opts; $("lpb").innerHTML = `<option value="">— compare with… —</option>` + opts;
   ls.a = ps[0][0]; ls.b = ""; $("lpa").value = ls.a; $("lpb").value = "";
-  chips("lOut", Object.entries(L.outputs).map(([k, o]) => [k, o.label.replace(/ \(.*\)/, "").replace(" contact force", "")]), ls, "out", drawLoad);
+  chips("lOut", Object.entries(L.outputs).map(([k, o]) => [k, o.label.replace(/ \(.*\)/, "").replace(" contact force", "")]).concat([["shots3d", "3D shots"]]), ls, "out", drawLoad);
   $("iModel").innerHTML = L.library.status === "placeholder"
     ? `<b>Model estimates with placeholder coefficients.</b> Movement (speed, acceleration, cuts, steps) comes from SportVU tracking; the load per step comes from a task library that still uses rough literature-range values, not BioScout simulations. Use for relative comparisons only. Jumps and landings are not included yet.`
     : `Loads estimated with BioScout task library v${L.library.version}.`;
@@ -810,6 +815,10 @@ async function loadLoadGame() {
 }
 function drawLoad() {
   const L = ls.data; if (!L) return;
+  const is3d = ls.out === "shots3d";
+  $("lMain").classList.toggle("hide", is3d); $("l3d").classList.toggle("hide", !is3d);
+  if (is3d) return loadShots3d();
+  v3Home();
   const sides = [["a", ls.a], ["b", ls.b]].filter(([, id]) => id && L.players[id]).map(([k, id]) => ({ k, p: L.players[id] }));
   const o = L.outputs[ls.out], u = o.unit, kind = o.kind || (u === "%" ? "peak" : "sum");
   const col = k => k === "a" ? "var(--a)" : "var(--b)";
@@ -1074,6 +1083,33 @@ function currentFiltered() {
   return shots.filter(s => s.e <= st.t && st.sel.has(s.pid) && qOk(s.q, st.q) && (st.r === "all" || (st.r === "made") === !!s.m));
 }
 
+// ---------- 3D shots inside the Player load tab: loads the matching ESPN game into the 3D view ----------
+const TEAM_ESPN = { GSW: "GS", NOP: "NO", NYK: "NY", SAS: "SA", UTA: "UTAH", WAS: "WSH" };
+let v3Spot = null;
+function v3Home() {   // put the 3D panel back in the Game view
+  if (v3Spot && $("v3").parentNode !== v3Spot.parent) v3Spot.parent.insertBefore($("v3"), v3Spot.next);
+}
+const normName = n => (n || "").normalize("NFKD").replace(/[^\w ]/g, "").toLowerCase().trim();
+async function loadShots3d() {
+  const L = ls.data, code = t => TEAM_ESPN[t] || t, day = Date.parse(L.date);
+  const g = games.find(x => x.home === code(L.home) && x.away === code(L.away) && Math.abs(Date.parse(x.date) - day) < 2 * 86400e3);
+  if (!g) { $("l3dNote").textContent = "ESPN's shot data for this game isn't downloaded yet; it arrives with the 2015–16 backfill."; $("v3").classList.add("hide"); return; }
+  $("l3dNote").textContent = "";
+  if (!v3Spot) v3Spot = { parent: $("v3").parentNode, next: $("v3").nextSibling };
+  $("l3d").appendChild($("v3"));
+  if ($("game").value !== g.id) { $("gSeason").value = g.season; fillGames(); $("game").value = g.id; await loadGame(); }
+  // tick only the selected players (matched by name)
+  const want = [ls.a, ls.b].filter(Boolean).map(id => normName((L.players[id] || {}).n));
+  const full = pid => normName((st.names[pid] || [])[1]);
+  st.sel = new Set(shots.map(x => x.pid).filter(pid => want.includes(full(pid))));
+  const tms = [...new Set(shots.filter(x => st.sel.has(x.pid)).map(x => x.t))];
+  v3.team = tms.length === 1 ? tms[0] : "both";
+  st.view = "3d"; st.t = st.max;
+  $("v3").classList.remove("hide");
+  draw3d(currentFiltered());
+  if (!st.sel.size) $("l3dNote").textContent = "These players took no shots in the ESPN play-by-play for this game.";
+}
+
 // ---------- zoom into one 10-second moment ----------
 async function showZoom(bin) {
   ls.zbin = bin; $("lZoom").classList.remove("hide");
@@ -1090,28 +1126,30 @@ function drawZoom() {
   $("lzTitle").textContent = `${q <= 4 ? "Q" + q : "OT"} · ${mm(qend - t0)} – ${mm(Math.max(0, qend - t0 - L.bin))} on the clock`;
   const PC = ["#3b5bdb", "#1fb5c9", "#3ddc84", "#f5e04a", "#ff8a3d", "#ff4b6e", "#c77dff"], oi = Z.outputs.indexOf(ls.out), o = L.outputs[ls.out];
   const sides = [["a", ls.a], ["b", ls.b]].filter(([, id]) => id && L.players[id]);
-  const W = 700, H = 210, pad = 34, X = t => pad + (W - pad - 30) * t / (L.bin * 10);
+  const W = 700, H = 340, pad = 34, X = t => pad + (W - pad - 34) * t / (L.bin * 10);
   $("lzBody").innerHTML = sides.map(([k, id]) => {
     const z = (Z.players[id] || {})[bin], col = k === "a" ? "var(--a)" : "var(--b)", p = L.players[id];
     if (!z || !z.s.length) return `<div class="hint" style="margin:8px 0">${esc(p.n)}: not on court in these 10 seconds</div>`;
-    const Ys = v => 120 - v / 10 / 9 * 100, Ya = a => 120 - (a / 10 + 6) / 12 * 100;   // speed 0-9 m/s, accel -6..6 m/s2 (same band)
+    // top: speed (left axis, 0-9 m/s) and acceleration (right axis, -6..6 m/s2); middle: movement strip + time; bottom: one bar per step
+    const top = 14, bot = 190, Ys = v => bot - v / 10 / 9 * (bot - top), Ya = a => bot - (a / 10 + 6) / 12 * (bot - top);
     let g = `<svg viewBox="0 0 ${W} ${H}">`;
-    [0, 3, 6, 9].forEach(v => g += `<text x="${pad - 4}" y="${Ys(v * 10) + 4}" fill="var(--dim)" font-size="10" text-anchor="end">${v}</text><line x1="${pad}" x2="${W - 30}" y1="${Ys(v * 10)}" y2="${Ys(v * 10)}" stroke="#222836"/>`);
-    // phase strip
-    z.s.forEach((r, i) => { if (r[3] < 0) return; const x0 = X(r[0]), x1 = X(i + 1 < z.s.length ? z.s[i + 1][0] : r[0] + 2); g += `<rect x="${x0}" y="126" width="${Math.max(1, x1 - x0)}" height="8" fill="${PC[r[3]]}"/>`; });
-    g += `<path d="${z.s.map((r, i) => (i ? "L" : "M") + X(r[0]).toFixed(1) + " " + Ys(r[1]).toFixed(1)).join("")}" fill="none" stroke="${col}" stroke-width="2.2"/>`;
+    [0, 3, 6, 9].forEach(v => g += `<text x="${pad - 5}" y="${Ys(v * 10) + 4}" fill="var(--dim)" font-size="11" text-anchor="end">${v}</text><line x1="${pad}" x2="${W - 34}" y1="${Ys(v * 10)}" y2="${Ys(v * 10)}" stroke="#222836"/>`);
+    [-6, 0, 6].forEach(v => g += `<text x="${W - 30}" y="${Ya(v * 10) + 4}" fill="var(--dim)" font-size="11">${v > 0 ? "+" : ""}${v}</text>`);
+    g += `<text x="4" y="${top - 3}" fill="var(--dim)" font-size="10">m/s</text><text x="${W - 30}" y="${top - 3}" fill="var(--dim)" font-size="10">m/s²</text>`;
+    g += `<line x1="${pad}" x2="${W - 34}" y1="${Ya(0)}" y2="${Ya(0)}" stroke="#ffffff22" stroke-dasharray="2 4"/>`;
     const ap = z.s.filter(r => r[2] !== null);
-    if (ap.length) g += `<path d="${ap.map((r, i) => (i ? "L" : "M") + X(r[0]).toFixed(1) + " " + Ya(r[2]).toFixed(1)).join("")}" fill="none" stroke="#fff" stroke-width="1.2" stroke-dasharray="4 3" opacity=".7"/>`;
-    // steps: bar height = load of the chosen output
-    const mx = Math.max(1e-6, ...z.steps.map(st => st[2 + oi]));
-    z.steps.forEach(st => { const h = 50 * st[2 + oi] / mx; g += `<rect x="${X(st[0]) - 2}" y="${195 - h}" width="4" height="${h}" fill="${PC[st[1]]}"/>`; });
-    g += `<text x="${pad}" y="12" fill="var(--dim)" font-size="11">speed m/s (solid) · acceleration −6…6 m/s² (dashed) · phase strip · steps (bar = ${esc(o.label.toLowerCase())})</text>`;
-    [-6, 0, 6].forEach(v => g += `<text x="${W - 28}" y="${Ya(v * 10) + 4}" fill="var(--dim)" font-size="10">${v > 0 ? "+" : ""}${v}</text>`);
-    g += `<text x="${W - 28}" y="${Ya(-60) + 16}" fill="var(--dim)" font-size="9">m/s²</text><line x1="${pad}" x2="${W - 30}" y1="${Ya(0)}" y2="${Ya(0)}" stroke="#ffffff22" stroke-dasharray="2 4"/>`;
-    for (let sec = 0; sec <= L.bin; sec += 2) g += `<text x="${X(sec * 10)}" y="${H - 2}" fill="var(--dim)" font-size="10" text-anchor="middle">${sec}s</text>`;
+    if (ap.length) g += `<path d="${ap.map((r, i) => (i ? "L" : "M") + X(r[0]).toFixed(1) + " " + Ya(r[2]).toFixed(1)).join("")}" fill="none" stroke="#fff" stroke-width="1.3" stroke-dasharray="5 4" opacity=".75"/>`;
+    g += `<path d="${z.s.map((r, i) => (i ? "L" : "M") + X(r[0]).toFixed(1) + " " + Ys(r[1]).toFixed(1)).join("")}" fill="none" stroke="${col}" stroke-width="2.6"/>`;
+    z.s.forEach((r, i) => { if (r[3] < 0) return; const x0 = X(r[0]), x1 = X(i + 1 < z.s.length ? z.s[i + 1][0] : r[0] + 2); g += `<rect x="${x0}" y="${bot + 8}" width="${Math.max(1, x1 - x0)}" height="10" fill="${PC[r[3]]}"/>`; });
+    for (let sec = 0; sec <= L.bin; sec += 2) g += `<text x="${X(sec * 10)}" y="${bot + 34}" fill="var(--dim)" font-size="11" text-anchor="middle">${sec} s</text>`;
+    const mx = Math.max(1e-6, ...z.steps.map(st => st[2 + oi])), b0 = bot + 44, bh = H - b0 - 4;
+    g += `<line x1="${pad}" x2="${W - 34}" y1="${H - 4}" y2="${H - 4}" stroke="var(--line)"/>`;
+    z.steps.forEach(st => { const h = bh * st[2 + oi] / mx; g += `<rect x="${X(st[0]) - 2.5}" y="${H - 4 - h}" width="5" height="${h}" rx="1" fill="${PC[st[1]]}"/>`; });
+    g += `<text x="${pad - 5}" y="${b0 + 10}" fill="var(--dim)" font-size="10" text-anchor="end">${o.unit === "%" ? mx.toFixed(0) + "%" : mx.toFixed(1)}</text>`;
     g += "</svg>";
     const sum = z.steps.reduce((a, st) => a + st[2 + oi], 0), vmax = Math.max(...z.s.map(r => r[1])) / 10;
-    return `<div style="color:${col};font-size:13px;margin-top:8px">${esc(p.n)} · ${z.steps.length} steps · top speed ${vmax.toFixed(1)} m/s · ${o.unit === "%" ? "peak " + mx.toFixed(1) + "%" : "load " + sum.toFixed(1) + " " + o.unit}</div>${g}`;
+    return `<div style="color:${col};font-size:13px;margin-top:10px">${esc(p.n)} · ${z.steps.length} steps · top speed ${vmax.toFixed(1)} m/s · ${o.unit === "%" ? "peak " + mx.toFixed(1) + "%" : "load " + sum.toFixed(1) + " " + o.unit}</div>
+      <div class="mlab" style="margin:4px 0"><span><span style="color:${col}">━━</span> speed</span><span>╍╍ acceleration</span><span>▮ steps: ${esc(o.label.toLowerCase())}</span></div>${g}`;
   }).join("") + `<div class="mlab" style="margin-top:4px">${["walk", "jog", "run", "sprint", "accel", "decel", "cut"].map((h, i) => `<span><span style="color:${PC[i]}">■</span> ${h}</span>`).join("")}</div>`;
 }
 

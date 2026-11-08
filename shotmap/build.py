@@ -47,7 +47,7 @@ for season in sorted(os.listdir(os.path.join(here, "raw"))):
                 v = 3
             ast = row[9] if len(row) > 9 else ""
             t = side[ti]
-            short, full = g["names"].get(pid, ["Unknown", "Unknown"])
+            short, full = g["names"].get(pid, ["Unknown", "Unknown"])[:2]
             p = players.setdefault(pid, {"id": pid, "n": full, "t": t, "last": "", "types": [], "tix": {}, "shots": [], "ast": []})
             if g["date"] > p["last"]:
                 p["last"], p["t"], p["n"] = g["date"], t, full
