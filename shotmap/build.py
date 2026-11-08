@@ -89,6 +89,69 @@ for (t, s), tm in teams.items():
 tindex.sort(key=lambda r: (r["s"], r["t"]))
 json.dump(tindex, open(os.path.join(data, "teams.json"), "w"), separators=(",", ":"))
 
+# ---------------------------------------------------------------- landscape (box-score based)
+# per game and team / player: MIN PTS FGM FGA 3PM 3PA FTM FTA OREB DREB AST STL BLK TO PF +/-
+LCOLS = ["min", "pts", "fgm", "fga", "tpm", "tpa", "ftm", "fta", "oreb", "dreb", "ast", "stl", "blk", "tov", "pf", "pm"]
+land = os.path.join(data, "land")
+os.makedirs(land, exist_ok=True)
+
+
+def num(v):
+    try:
+        return int(str(v).replace("+", ""))
+    except ValueError:
+        return 0
+
+
+def box_row(cols, st):
+    get = lambda c: st[cols.index(c)] if c in cols and cols.index(c) < len(st) else "0"
+    pair = lambda c: [num(x) for x in (str(get(c)).split("-") + ["0"])[:2]] if "-" in str(get(c)) else [0, 0]
+    fg, tp, ft = pair("FG"), pair("3PT"), pair("FT")
+    return [num(get("MIN")), num(get("PTS")), *fg, *tp, *ft, num(get("OREB")), num(get("DREB")), num(get("AST")),
+            num(get("STL")), num(get("BLK")), num(get("TO")), num(get("PF")), num(get("+/-"))]
+
+
+team_rows, pseason, career = [], {}, {}
+for season in sorted(os.listdir(os.path.join(here, "raw"))):
+    folder = os.path.join(here, "raw", season)
+    if not os.path.isdir(folder):
+        continue
+    for f in os.listdir(folder):
+        g = json.load(open(os.path.join(folder, f)))
+        box = g.get("box") or {}
+        if not box.get("rows"):
+            continue
+        side, tot = [g["away"], g["home"]], [[0] * len(LCOLS), [0] * len(LCOLS)]
+        S = pseason.setdefault(season, {"names": {}, "rows": []})
+        for pid, r in box["rows"].items():
+            ti, starter, dnp, st = r[0], r[1], r[2], r[3:]
+            if dnp or not st:
+                continue
+            row = box_row(box["cols"], st)
+            tot[ti] = [a + b for a, b in zip(tot[ti], row)]
+            nm = g["names"].get(pid, ["?", "?"])
+            S["names"][pid] = [nm[1], side[ti]]
+            S["rows"].append([g["id"], g["date"][:10], side[ti], pid, starter, *row])
+            c = career.setdefault(pid, {"n": nm[1], "t": side[ti], "last": "", "g": 0, "seasons": set(), "tot": [0] * len(LCOLS)})
+            c["g"] += 1; c["seasons"].add(season); c["tot"] = [a + b for a, b in zip(c["tot"], row)]
+            if g["date"] > c["last"]:
+                c["last"], c["t"], c["n"] = g["date"], side[ti], nm[1]
+        pts = [g["as"], g["hs"]]
+        for ti in (0, 1):
+            tot[ti][1] = pts[ti] or tot[ti][1]   # official score
+            team_rows.append([g["id"], g["date"][:10], season, side[ti], side[1 - ti], *tot[ti], *tot[1 - ti][1:14]])
+team_rows.sort(key=lambda r: r[1])
+json.dump({"cols": ["g", "date", "season", "team", "opp"] + LCOLS + ["o_" + c for c in LCOLS[1:14]], "rows": team_rows},
+          open(os.path.join(land, "teams.json"), "w"), separators=(",", ":"))
+for season, S in pseason.items():
+    S["rows"].sort(key=lambda r: r[1])
+    json.dump({"cols": ["g", "date", "team", "pid", "starter"] + LCOLS, **S},
+              open(os.path.join(land, f"players_{season}.json"), "w"), separators=(",", ":"))
+json.dump({"cols": LCOLS, "seasons": sorted(pseason),
+           "players": {pid: [c["n"], c["t"], c["g"], len(c["seasons"]), *c["tot"]] for pid, c in career.items() if c["g"]}},
+          open(os.path.join(land, "career.json"), "w"), separators=(",", ":"))
+print(f"landscape: {len(team_rows)} team-games, {sum(len(S['rows']) for S in pseason.values())} player-games")
+
 size = sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fs in os.walk(out) for f in fs)
 print(f"built {len(games)} games, {len(index)} players, {len(tindex)} team-seasons, "
       f"{size / 1e6:.0f} MB in {time.time() - T0:.0f} s")

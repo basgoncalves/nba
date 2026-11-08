@@ -129,7 +129,7 @@
 <body>
 <header><h1>NBA Shot Maps</h1><div class="sub" id="sub">Loading…</div></header>
 <div class="wrap">
-  <div class="tabs"><button id="tabGame" class="on">Game</button><button id="tabCmp">Compare players</button><button id="tabTeam">Compare teams</button><button id="tabLoad">Player load</button></div>
+  <div class="tabs"><button id="tabGame" class="on">Game</button><button id="tabCmp">Compare players</button><button id="tabTeam">Compare teams</button><button id="tabLoad">Player load</button><button id="tabLand">Landscape</button></div>
 
   <!-- ============ GAME VIEW ============ -->
   <section id="gameView">
@@ -203,6 +203,24 @@
     </div>
     <div class="courts" id="tCourts"></div>
     <table class="zones" id="tZones"></table>
+  </section>
+
+  <!-- ============ LANDSCAPE VIEW ============ -->
+  <section id="landView" class="hide">
+    <div class="controls">
+      <div class="row"><span class="lbl">Show</span><div id="laMode" class="row"></div></div>
+      <div class="row"><span class="lbl">Period</span><div id="laPeriod" class="row"></div><select id="laSeason" style="width:auto"></select>
+        <select id="laN" style="width:auto"><option>5</option><option selected>10</option><option>20</option><option>30</option></select></div>
+      <div class="two" style="grid-template-columns:1fr 1fr"><select id="laX"></select><select id="laY"></select></div>
+      <div class="row" id="laPlayerRow"><span class="lbl">Players</span>
+        <span class="hint">min</span><select id="laMin" style="width:auto"><option value="10">10 min/g</option><option value="20" selected>20 min/g</option><option value="28">28 min/g</option></select>
+        <input type="search" id="laFind" list="laList" placeholder="highlight a player" style="flex:1;min-width:120px"><datalist id="laList"></datalist></div>
+      <div class="row" id="laHi"></div>
+    </div>
+    <div class="panel"><div class="row" style="justify-content:space-between;flex-wrap:nowrap"><h4 style="margin:0" id="laTitle"></h4>
+      <button class="info" data-for="iLand" aria-label="About the landscape">i</button></div>
+      <div class="infobox hide" id="iLand"></div>
+      <div id="laPlot" style="margin-top:6px"></div></div>
   </section>
 
   <!-- ============ LOAD VIEW ============ -->
@@ -373,6 +391,8 @@ async function init() {
   } catch { games = []; }
   try { players = await getJSON("data/players.json"); } catch { players = []; }
   await initLoad();
+  $("tabLand").onclick = () => { show("land"); drawLand(); };
+  initLand();
   $("tabLoad").onclick = async () => { show("load"); if (!ls.data) await loadLoadGame(); };
   $("tabGame").onclick = () => { v3Home(); show("game"); drawGame(); };
   if (new URLSearchParams(location.search).get("view") === "load" && ls.games.length) { show("load", true); await loadLoadGame(); }
@@ -457,12 +477,15 @@ function show(v, silent) {
   $("cmpView").classList.toggle("hide", v !== "cmp");
   $("teamView").classList.toggle("hide", v !== "team");
   $("loadView").classList.toggle("hide", v !== "load");
+  $("landView").classList.toggle("hide", v !== "land");
+  $("tabLand").classList.toggle("on", v === "land");
   $("tabLoad").classList.toggle("on", v === "load");
   document.querySelectorAll(".legend").forEach(el => el.style.display = v === "load" ? "none" : "");
   $("tabGame").classList.toggle("on", v === "game");
   $("tabCmp").classList.toggle("on", v === "cmp");
   $("tabTeam").classList.toggle("on", v === "team");
-  if (!silent && v !== "team" && v !== "load") v === "game" ? updateUrlGame() : updateUrlCmp();
+  if (v === "land") document.querySelectorAll(".legend").forEach(el => el.style.display = "none");
+  if (!silent && v !== "team" && v !== "load" && v !== "land") v === "game" ? updateUrlGame() : updateUrlCmp();
   legend();
 }
 
@@ -1082,6 +1105,122 @@ async function draw3d(f) {
 }
 function currentFiltered() {
   return shots.filter(s => s.e <= st.t && st.sel.has(s.pid) && qOk(s.q, st.q) && (st.r === "all" || (st.r === "made") === !!s.m));
+}
+
+// ---------- landscape: any two box-score metrics, teams or players ----------
+const la = { mode: "teams", period: "season", x: null, y: null, hi: new Set(), cache: {}, pts: [] };
+const poss = (f, a, t, o) => f - o + t + 0.44 * a;   // fga, fta, tov, oreb
+const LA_T = {
+  ortg: ["Offensive rating (pts / 100 poss)", T => 100 * T.pts / poss(T.fga, T.fta, T.tov, T.oreb), 1],
+  drtg: ["Defensive rating (opp pts / 100 poss)", T => 100 * T.o_pts / poss(T.o_fga, T.o_fta, T.o_tov, T.o_oreb), -1],
+  net: ["Net rating", T => LA_T.ortg[1](T) - LA_T.drtg[1](T), 1],
+  pace: ["Pace (poss / 48 min)", T => 48 * 5 * (poss(T.fga, T.fta, T.tov, T.oreb) + poss(T.o_fga, T.o_fta, T.o_tov, T.o_oreb)) / 2 / T.min, 1],
+  ppg: ["Points per game", T => T.pts / T.n, 1],
+  efg: ["eFG%", T => 100 * (T.fgm + 0.5 * T.tpm) / T.fga, 1],
+  oefg: ["Opponent eFG%", T => 100 * (T.o_fgm + 0.5 * T.o_tpm) / T.o_fga, -1],
+  ts: ["True shooting %", T => 100 * T.pts / (2 * (T.fga + 0.44 * T.fta)), 1],
+  tpar: ["3-point attempt rate %", T => 100 * T.tpa / T.fga, 1],
+  tovp: ["Turnover %", T => 100 * T.tov / poss(T.fga, T.fta, T.tov, T.oreb), -1],
+  orbp: ["Offensive rebound %", T => 100 * T.oreb / (T.oreb + T.o_dreb), 1],
+  drbp: ["Defensive rebound %", T => 100 * T.dreb / (T.dreb + T.o_oreb), 1],
+  ftr: ["Free-throw rate (FTA/FGA)", T => 100 * T.fta / T.fga, 1],
+  astp: ["Assisted field goals %", T => 100 * T.ast / T.fgm, 1],
+};
+const p36 = (T, v) => 36 * v / Math.max(1, T.min);
+const LA_P = {
+  ts: ["True shooting % (offensive efficiency)", T => 100 * T.pts / Math.max(1, 2 * (T.fga + 0.44 * T.fta)), 1],
+  stocks: ["Steals + blocks per 36 (defensive activity)", T => p36(T, T.stl + T.blk), 1],
+  pts36: ["Points per 36", T => p36(T, T.pts), 1],
+  ppg: ["Points per game", T => T.pts / T.n, 1],
+  reb36: ["Rebounds per 36", T => p36(T, T.oreb + T.dreb), 1],
+  ast36: ["Assists per 36", T => p36(T, T.ast), 1],
+  usg: ["Usage (FGA + 0.44 FTA + TO per 36)", T => p36(T, T.fga + 0.44 * T.fta + T.tov), 1],
+  efg: ["eFG%", T => 100 * (T.fgm + 0.5 * T.tpm) / Math.max(1, T.fga), 1],
+  tpar: ["3-point attempt rate %", T => 100 * T.tpa / Math.max(1, T.fga), 1],
+  ato: ["Assist / turnover", T => T.ast / Math.max(1, T.tov), 1],
+  pm36: ["Plus-minus per 36", T => p36(T, T.pm), 1],
+  mpg: ["Minutes per game", T => T.min / T.n, 1],
+};
+const LA_DEF = { teams: ["ortg", "drtg"], players: ["ts", "stocks"] };
+async function initLand() {
+  const seasons = [...new Set(games.map(g => g.season))].sort().reverse();
+  $("laSeason").innerHTML = seasons.map(s => `<option>${s}</option>`).join("");
+  chips("laMode", [["teams", "Teams"], ["players", "Players"]], la, "mode", () => { la.x = la.y = null; drawLand(); });
+  chips("laPeriod", [["season", "Season"], ["last", "Last games"], ["career", "Career"]], la, "period", drawLand);
+  ["laSeason", "laN", "laMin", "laX", "laY"].forEach(id => $(id).onchange = () => { if (id === "laX") la.x = $(id).value; if (id === "laY") la.y = $(id).value; drawLand(); });
+  $("laFind").onchange = () => { const v = $("laFind").value.trim(); const m = la.pts.find(p => p.n.toLowerCase() === v.toLowerCase()) || la.pts.find(p => p.n.toLowerCase().includes(v.toLowerCase()));
+    if (m) la.hi.add(m.id); $("laFind").value = ""; drawLand(); };
+  $("laHi").onclick = e => { const id = e.target.closest("[data-id]")?.dataset.id; if (id) { la.hi.delete(id); drawLand(); } };
+}
+async function laGet(path) { return la.cache[path] || (la.cache[path] = await getJSON(path)); }
+const laRow = (cols, r) => Object.fromEntries(cols.map((c, i) => [c, r[i]]));
+async function laEntities() {
+  const season = $("laSeason").value, N = +$("laN").value;
+  const add = (A, R, cols) => { cols.forEach(c => { if (typeof R[c] === "number") A[c] = (A[c] || 0) + R[c]; }); A.n = (A.n || 0) + 1; return A; };
+  if (la.mode === "teams") {
+    const d = await laGet("data/land/teams.json"), rows = d.rows.map(r => laRow(d.cols, r));
+    let use = la.period === "career" ? rows : rows.filter(r => r.season === season);
+    if (la.period === "last") { const by = {}; use.forEach(r => (by[r.team] = by[r.team] || []).push(r)); use = Object.values(by).flatMap(v => v.slice(-N)); }
+    const agg = {}; use.forEach(r => add(agg[r.team] = agg[r.team] || { id: r.team, n0: r.team }, r, d.cols));
+    return Object.values(agg).map(A => ({ ...A, label: A.id }));
+  }
+  if (la.period === "career") {
+    const d = await laGet("data/land/career.json");
+    return Object.entries(d.players).map(([id, r]) => ({ id, label: r[0], team: r[1], ...Object.fromEntries(d.cols.map((c, k) => [c, r[4 + k]])), n: r[2] }));
+  }
+  const d = await laGet(`data/land/players_${season}.json`), rows = d.rows.map(r => laRow(d.cols, r));
+  const by = {}; rows.forEach(r => (by[r.pid] = by[r.pid] || []).push(r));
+  return Object.entries(by).map(([id, rs]) => { const use = la.period === "last" ? rs.slice(-N) : rs, A = { id, label: d.names[id][0], team: d.names[id][1] };
+    use.forEach(r => add(A, r, d.cols)); A.ngames = A.n; return A; });
+}
+async function drawLand() {
+  const M = la.mode === "teams" ? LA_T : LA_P;
+  if (!la.x || !M[la.x]) la.x = LA_DEF[la.mode][0]; if (!la.y || !M[la.y]) la.y = LA_DEF[la.mode][1];
+  const opts = Object.entries(M).map(([k, m]) => `<option value="${k}">${m[0]}</option>`).join("");
+  $("laX").innerHTML = opts; $("laY").innerHTML = opts; $("laX").value = la.x; $("laY").value = la.y;
+  $("laSeason").classList.toggle("hide", la.period === "career"); $("laN").classList.toggle("hide", la.period !== "last");
+  $("laPlayerRow").classList.toggle("hide", la.mode !== "players"); $("laHi").classList.toggle("hide", la.mode !== "players");
+  let ents = await laEntities();
+  if (la.mode === "players") {
+    const minG = la.period === "career" ? 20 : la.period === "last" ? Math.min(+$("laN").value, 3) : 5;
+    ents = ents.filter(e => e.n >= minG && e.min / e.n >= +$("laMin").value);
+  }
+  const [mx, my] = [M[la.x], M[la.y]];
+  const pts = ents.map(e => ({ id: e.id, n: e.label, t: e.team, x: mx[1](e), y: my[1](e), g: e.n })).filter(p => isFinite(p.x) && isFinite(p.y));
+  la.pts = pts;
+  $("laList").innerHTML = la.mode === "players" ? pts.map(p => `<option value="${esc(p.n)}">`).join("") : "";
+  $("laHi").innerHTML = [...la.hi].map(id => pts.find(p => p.id === id)).filter(Boolean).map(p => `<button class="chip on" data-id="${p.id}">${esc(p.n)} ✕</button>`).join("");
+  const per = la.period === "career" ? "career" : la.period === "last" ? `last ${$("laN").value} games of ${$("laSeason").value}` : $("laSeason").value;
+  $("laTitle").textContent = `${la.mode === "teams" ? "Teams" : "Players"} · ${per}`;
+  $("iLand").innerHTML = `Lines cross at the average of the dots shown. Axes are oriented so <b>up and right are better</b> (e.g. a lower defensive rating is plotted higher). ` +
+    `Possessions are estimated from the box score (FGA − OREB + TO + 0.44 FTA).` + (la.mode === "players" ? ` Box scores have no individual defensive efficiency, so the player default uses steals + blocks per 36 as defensive activity. Showing players with at least ${$("laMin").value} min per game.` : "");
+  if (pts.length < 2) { $("laPlot").innerHTML = '<div class="hint">Not enough box-score data for this selection yet.</div>'; return; }
+  // plot: oriented so good = up/right; centred on the mean
+  const W = 640, H = 640, pad = 46, mean = a => a.reduce((s, v) => s + v, 0) / a.length;
+  const xs = pts.map(p => p.x * mx[2]), ys = pts.map(p => p.y * my[2]), cx = mean(xs), cy = mean(ys);
+  const rx = Math.max(...xs.map(v => Math.abs(v - cx))) * 1.12 || 1, ry = Math.max(...ys.map(v => Math.abs(v - cy))) * 1.12 || 1;
+  const X = v => W / 2 + (v - cx) / rx * (W / 2 - pad), Y = v => H / 2 - (v - cy) / ry * (H / 2 - pad);
+  const rank = (arr, v) => 1 + arr.filter(a => a > v).length;
+  let g = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">`;
+  g += `<rect x="${W / 2}" y="${pad / 2}" width="${W / 2 - pad / 2}" height="${H / 2 - pad / 2}" fill="#3ddc8410"/><rect x="${pad / 2}" y="${H / 2}" width="${W / 2 - pad / 2}" height="${H / 2 - pad / 2}" fill="#ff4b6e10"/>`;
+  g += `<line x1="${pad / 2}" x2="${W - pad / 2}" y1="${H / 2}" y2="${H / 2}" stroke="var(--line)"/><line y1="${pad / 2}" y2="${H - pad / 2}" x1="${W / 2}" x2="${W / 2}" stroke="var(--line)"/>`;
+  g += `<line x1="${pad / 2}" y1="${pad / 2}" x2="${W - pad / 2}" y2="${H - pad / 2}" stroke="var(--line)" stroke-dasharray="4 5"/>`;
+  g += `<text x="${W / 2}" y="${H - 6}" text-anchor="middle" fill="var(--dim)" font-size="15">${esc(mx[0])} →</text>`;
+  g += `<text transform="translate(16 ${H / 2}) rotate(-90)" text-anchor="middle" fill="var(--dim)" font-size="15">${esc(my[0])} →</text>`;
+  const labelAll = la.mode === "teams" || pts.length <= 40;
+  const extremes = new Set([...pts].sort((a, b) => (b.x * mx[2] - cx) / rx + (b.y * my[2] - cy) / ry - ((a.x * mx[2] - cx) / rx + (a.y * my[2] - cy) / ry)).slice(0, 6).map(p => p.id)
+    .concat([...pts].sort((a, b) => (a.x * mx[2] - cx) / rx + (a.y * my[2] - cy) / ry - ((b.x * mx[2] - cx) / rx + (b.y * my[2] - cy) / ry)).slice(0, 4).map(p => p.id)));
+  pts.forEach((p, i) => {
+    const x = X(p.x * mx[2]), y = Y(p.y * my[2]), hi = la.hi.has(p.id), lab = labelAll || hi || extremes.has(p.id);
+    if (la.mode === "teams") g += `<circle cx="${x}" cy="${y}" r="17" fill="var(--panel2)" stroke="var(--accent)" stroke-width="1.5" data-la="${i}"/><text x="${x}" y="${y + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="var(--text)" pointer-events="none">${esc(p.n)}</text>`;
+    else g += `<circle cx="${x}" cy="${y}" r="${hi ? 7 : 4.5}" fill="${hi ? "var(--b)" : "var(--accent)"}" opacity="${hi ? 1 : .7}" data-la="${i}"/>` +
+      (lab ? `<text x="${x + 7}" y="${y + 4}" font-size="${hi ? 13 : 11}" fill="${hi ? "var(--text)" : "var(--dim)"}" pointer-events="none">${esc(p.n.split(" ").slice(-1)[0])}</text>` : "");
+  });
+  g += `</svg>`;
+  $("laPlot").innerHTML = g + `<div class="hint" id="laTip" style="min-height:2.6em;margin-top:4px">Tap a dot for its numbers and ranks.</div>`;
+  const xr = pts.map(p => p.x * mx[2]), yr = pts.map(p => p.y * my[2]);
+  $("laPlot").onclick = e => { const i = e.target.dataset?.la; if (i === undefined) return; const p = pts[i];
+    $("laTip").innerHTML = `<b>${esc(p.n)}</b>${p.t ? " · " + p.t : ""} · ${p.g} games<br>${esc(mx[0])}: ${p.x.toFixed(1)} (#${rank(xr, p.x * mx[2])}) · ${esc(my[0])}: ${p.y.toFixed(1)} (#${rank(yr, p.y * my[2])})`; };
 }
 
 // ---------- 3D shots inside the Player load tab: loads the matching ESPN game into the 3D view ----------
