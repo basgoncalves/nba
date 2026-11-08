@@ -202,3 +202,48 @@ for g in sorted(todo, key=lambda g: g["date"], reverse=True):   # newest first
         print(f"[{n}/{len(todo)}] {g['date'][:10]} {g['away']}@{g['home']}: {len(data['shots'])} shots")
     time.sleep(0.1)
 print(f"downloaded {n} games in {(time.time() - T0) / 60:.1f} min")
+
+
+# ---------------------------------------------------------------- player heights (for the 3D view)
+# raw/heights.json: {playerId: height in inches}; 0 = looked up, not found. Only new players are fetched.
+heights = load_json("raw/heights.json", {})
+need = set()
+for season in os.listdir("raw"):
+    d = os.path.join("raw", season)
+    if os.path.isdir(d):
+        for f in os.listdir(d):
+            need.update(load_json(os.path.join(d, f), {}).get("names", {}))
+need -= set(heights)
+print(f"{len(need)} players without a height")
+
+
+def height_of(pid):
+    for url in (f"https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/{pid}",
+                f"https://sports.core.api.espn.com/v2/sports/basketball/leagues/nba/athletes/{pid}"):
+        try:
+            d = get(url, tries=2)
+        except Exception:
+            continue
+        a = d.get("athlete", d)
+        h = a.get("height")
+        if isinstance(h, (int, float)) and 60 <= h <= 96:
+            return int(round(h))
+        disp = str(a.get("displayHeight", ""))          # e.g. 6' 8"
+        if "'" in disp:
+            ft, _, inch = disp.partition("'")
+            try:
+                return int(ft.strip()) * 12 + int(inch.replace('"', "").strip() or 0)
+            except ValueError:
+                pass
+    return 0
+
+
+done = 0
+for pid in sorted(need):
+    if (time.time() - T0) / 60 > MAX_MINUTES + 8:   # a few extra minutes; the next run continues
+        break
+    heights[pid] = height_of(pid)
+    done += 1
+    time.sleep(0.05)
+json.dump(heights, open("raw/heights.json", "w"), separators=(",", ":"))
+print(f"heights: looked up {done}, {sum(1 for v in heights.values() if v)} known")

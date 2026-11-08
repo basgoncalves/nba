@@ -111,6 +111,7 @@
       <div class="row"><span class="lbl">Quarter</span><div id="quarters" class="row"></div></div>
       <div class="row"><span class="lbl">Result</span><div id="results" class="row"></div></div>
       <div class="row"><span class="lbl">Who</span><div id="roles" class="row"></div><span class="hint" id="roleHint"></span></div>
+      <div class="row"><span class="lbl">View</span><div id="views" class="row"></div></div>
       <details open>
         <summary>Players</summary>
         <div class="row" style="margin-top:8px">
@@ -119,6 +120,15 @@
         </div>
         <div class="players" id="players"></div>
       </details>
+    </div>
+    <div class="panel hide" id="v3"><div class="row" style="justify-content:space-between">
+        <div class="row" id="v3team"></div>
+        <div class="row" id="v3layers"></div></div>
+      <div id="v3box" style="position:relative;height:min(70vh,620px);margin-top:8px;border-radius:10px;overflow:hidden;background:#120d0a"></div>
+      <div class="legend" style="margin-top:8px">
+        <span><span style="color:#ff7a1a">■</span> made (column height = makes)</span><span><span style="color:#3a8f99">■</span> missed</span>
+        <span><span style="color:#ffd27a">●</span> release point</span><span class="hint">drag to rotate · pinch/scroll to zoom · right-drag to move</span></div>
+      <div class="hint" id="v3note" style="margin-top:6px"></div>
     </div>
     <div class="courts" id="courts">
       <div id="ct0"></div>
@@ -196,7 +206,7 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 let games = [], gameById = {}, players = [], playerById = {}, shots = [];
-const st = { q:"all", r:"all", role:"all", box:null, names:{}, sel:new Set(), t:2880, max:2880, tl:null, timer:null };
+const st = { view:"2d", q:"all", r:"all", role:"all", box:null, names:{}, sel:new Set(), t:2880, max:2880, tl:null, timer:null };
 const cs = { scope:"season", q:"all", mode:"auto", color:"freq", a:null, b:null, cache:{} };
 const ts = { q:"all", mode:"heat", color:"freq", a:null, b:null, off:{ a:new Set(), b:new Set() }, cache:{}, index:[] };
 const MODES = [["auto","Auto"],["dots","Dots"],["hex","Hexagons"],["heat","Heat map"]];
@@ -342,6 +352,8 @@ async function init() {
 
   chips("quarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], st, "q", drawGame);
   chips("results", [["all","All"],["made","Made"],["miss","Missed"]], st, "r", drawGame);
+  chips("views", [["2d","2D courts"],["3d","3D view"]], st, "view", drawGame);
+  try { HEIGHTS = await getJSON("raw/heights.json"); } catch { HEIGHTS = {}; }
   chips("scopes", [["game","Per game"],["season","Season"],["career","Career"]], cs, "scope", () => { syncScope(); drawCmp(); });
   chips("cQuarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], cs, "q", drawCmp);
   chips("cMode", MODES, cs, "mode", drawCmp);
@@ -560,6 +572,10 @@ function drawGame() {
       <svg viewBox="${full ? VB_FULL : VB}">${courtLines(full)}${dotMarks(ts, "g:" + t, full)}</svg></div>`;
   }).forEach((html, i) => $("ct" + i).outerHTML = html.replace('<div class=', `<div id="ct${i}" class=`));
   legend();
+  const three = st.view === "3d";
+  $("v3").classList.toggle("hide", !three);
+  ["ct0", "ct1"].forEach(id => $(id).classList.toggle("hide", three));
+  if (three) draw3d(f);
 }
 
 // ---------- compare view ----------
@@ -871,6 +887,140 @@ function drawLoad() {
   // top ACL moments
   $("lTop").innerHTML = `<tr><th>Player</th><th>When</th><th>Movement</th><th>ACL proxy</th></tr>` + sides.flatMap(({ p }) => p.top_acl.slice(0, 6).map(r =>
     `<tr><td>${esc(p.n.split(" ").slice(-1)[0])}</td><td>Q${r[2]} ${Math.floor(r[3] / 60)}:${String(Math.floor(r[3] % 60)).padStart(2, "0")}</td><td>${r[1]} at ${r[4].toFixed(1)} m/s, ${r[5].toFixed(1)} m/s²</td><td>${r[0].toFixed(2)} BW</td></tr>`)).join("");
+}
+
+// ---------- 3D view (three.js, loaded on first use) ----------
+let HEIGHTS = {}, T3 = null;
+const v3 = { team: null, layers: { cols: true, arcs: true, rel: true, made: true, miss: true } };
+function loadScript(src) { return new Promise((ok, no) => { const e = document.createElement("script"); e.src = src; e.onload = ok; e.onerror = no; document.head.appendChild(e); }); }
+async function ensure3d() {
+  if (window.THREE && THREE.OrbitControls) return true;
+  try {
+    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js");
+    await loadScript("https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js");
+    return true;
+  } catch { $("v3note").textContent = "Could not load the 3D library."; return false; }
+}
+// Estimated release height (ft). No public data has real release heights, so: standing reach ~1.33 x height,
+// plus a typical jump for the shot type. Dunks finish at the rim.
+function releaseFt(s) {
+  const hIn = +HEIGHTS[s.pid] || 79, reach = 1.33 * hIn / 12, d = (s.d || "").toLowerCase();
+  if (d.includes("dunk") || d.includes("alley")) return 10.4;
+  if (d.includes("tip") || d.includes("putback")) return Math.max(10.2, reach + 1.6);
+  if (d.includes("layup") || d.includes("finger")) return reach + 1.4;
+  if (d.includes("hook")) return reach + 0.6;
+  if (d.includes("heave")) return reach + 0.2;
+  if (d.includes("fade") || d.includes("step back") || d.includes("pullup") || d.includes("pull-up")) return reach + 0.9;
+  return reach + 0.7;   // jump shot
+}
+function init3d() {
+  const box = $("v3box"), W = box.clientWidth, H = box.clientHeight;
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(2, devicePixelRatio)); renderer.setSize(W, H); box.appendChild(renderer.domElement);
+  const scene = new THREE.Scene(); scene.background = new THREE.Color(0x120d0a);
+  const cam = new THREE.PerspectiveCamera(45, W / H, 0.5, 400), far = W / H < 1 ? 1.8 : 1;   // phones: step back
+  cam.position.set(30 * far, 34 * far, 30 * far - 14 * (far - 1));
+  const ctl = new THREE.OrbitControls(cam, renderer.domElement); ctl.target.set(0, 3, -14); ctl.enableDamping = true; ctl.maxPolarAngle = Math.PI / 2.05;
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.85); sun.position.set(20, 40, 25); scene.add(sun);
+  const dyn = new THREE.Group(); scene.add(dyn);
+  const court = new THREE.Group(); scene.add(court);
+  T3 = { renderer, scene, cam, ctl, dyn, court, full: null };
+  new ResizeObserver(() => { const w = box.clientWidth, h = box.clientHeight; renderer.setSize(w, h); cam.aspect = w / h; cam.updateProjectionMatrix(); }).observe(box);
+  (function loop() { requestAnimationFrame(loop); ctl.update(); renderer.render(scene, cam); })();
+}
+// court coordinates: x = sideline to sideline (ft), z = -(distance toward half court); basket at origin, y up
+function buildCourt(full) {
+  const g = T3.court; while (g.children.length) g.remove(g.children[0]);
+  const len = full ? 94 : 47, base = 4.75;   // baseline is 4.75 ft behind the basket centre
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(50, len), new THREE.MeshLambertMaterial({ color: 0x3a2516 }));
+  floor.rotation.x = -Math.PI / 2; floor.position.set(0, 0, base - len / 2); g.add(floor);
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xc9b25a });
+  const line = pts => g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(([x, z]) => new THREE.Vector3(x, 0.03, z))), lineMat));
+  const arc = (cx, cz, r, a0, a1, n = 48) => Array.from({ length: n + 1 }, (_, i) => { const a = a0 + (a1 - a0) * i / n; return [cx + r * Math.cos(a), cz - r * Math.sin(a)]; });
+  const half = (sgn, zb) => {   // zb = basket z; sgn = +1 near half, -1 far half
+    const Z = d => zb - sgn * d, bl = Z(-base);
+    const paint = new THREE.Mesh(new THREE.PlaneGeometry(16, 19), new THREE.MeshLambertMaterial({ color: 0xa8b23a, transparent: true, opacity: .55 }));
+    paint.rotation.x = -Math.PI / 2; paint.position.set(0, 0.02, (bl + Z(14.25)) / 2); g.add(paint);
+    line([[-8, bl], [-8, Z(14.25)], [8, Z(14.25)], [8, bl]]);
+    line(arc(0, Z(14.25), 6, 0, sgn * Math.PI));
+    const t = Math.acos(22 / 23.75), y3 = 23.75 * Math.sin(t);
+    line([[-22, bl], [-22, Z(y3)]]); line([[22, bl], [22, Z(y3)]]);
+    line(arc(0, zb, 23.75, sgn > 0 ? t : -t, sgn > 0 ? Math.PI - t : -(Math.PI - t)));
+    line(arc(0, zb, 4, 0, sgn * Math.PI, 24));
+    // hoop: rim, backboard, pole
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.75, 0.06, 8, 32), new THREE.MeshLambertMaterial({ color: 0xff6a00 }));
+    rim.rotation.x = Math.PI / 2; rim.position.set(0, 10, zb); g.add(rim);
+    const bb = new THREE.Mesh(new THREE.BoxGeometry(6, 3.5, 0.12), new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: .35 }));
+    bb.position.set(0, 11.3, Z(-1.25)); g.add(bb);
+    const pole = new THREE.Mesh(new THREE.BoxGeometry(0.6, 12, 0.6), new THREE.MeshLambertMaterial({ color: 0x55606e }));
+    pole.position.set(0, 6, Z(-6)); g.add(pole);
+  };
+  line([[-25, base], [25, base], [25, base - len], [-25, base - len], [-25, base]]);
+  half(1, 0);
+  if (full) { line([[-25, base - 47], [25, base - 47]]); line(arc(0, base - 47, 6, 0, 2 * Math.PI)); half(-1, base - 94 + base); }
+  else line(arc(0, base - 47, 6, Math.PI, 2 * Math.PI));
+  T3.full = full;
+}
+async function draw3d(f) {
+  if (!(await ensure3d())) return;
+  if (!T3) init3d();
+  const teams = teamsOf();
+  if (!teams.includes(v3.team)) v3.team = teams[0];
+  chips("v3team", teams.map(t => [t, t]), v3, "team", () => draw3d(currentFiltered()));
+  $("v3layers").innerHTML = [["cols", "Columns"], ["arcs", "Shot arcs"], ["rel", "Release height"], ["made", "Made"], ["miss", "Missed"]]
+    .map(([k, l]) => `<label style="font-size:13px;display:flex;gap:4px;align-items:center"><input type="checkbox" data-l="${k}" ${v3.layers[k] ? "checked" : ""}>${l}</label>`).join("");
+  $("v3layers").onchange = e => { v3.layers[e.target.dataset.l] = e.target.checked; draw3d(currentFiltered()); };
+  const list = f.filter(s => s.t === v3.team && Math.abs(s.x) <= 250 && s.y <= 892)
+    .filter(s => (s.m ? v3.layers.made : v3.layers.miss));
+  const full = shots.some(s => s.t === v3.team && s.y > 332);
+  if (T3.full !== full) buildCourt(full);
+  const G = T3.dyn; while (G.children.length) { const c = G.children.pop(); c.geometry && c.geometry.dispose(); }
+  const P = s => [s.x / 10, -s.y / 10];
+  // hexagon bins (1.6 ft): orange columns for makes, flat teal hexes for misses
+  if (v3.layers.cols) {
+    const R = 1.6, w = Math.sqrt(3) * R, bins = {};
+    list.forEach(s => {
+      const [x, z] = P(s), r = Math.round(z / (1.5 * R)), off = (r & 1) ? w / 2 : 0, c = Math.round((x - off) / w), k = r + "," + c;
+      (bins[k] = bins[k] || { x: c * w + off, z: r * 1.5 * R, m: 0, n: 0 }).n++; if (s.m) bins[k].m++;
+    });
+    const made = new THREE.MeshLambertMaterial({ color: 0xff7a1a }), miss = new THREE.MeshLambertMaterial({ color: 0x3a8f99 });
+    Object.values(bins).forEach(b => {
+      if (b.n > b.m) { const m = new THREE.Mesh(new THREE.CylinderGeometry(R * .82, R * .82, 0.25, 6), miss); m.position.set(b.x, 0.13, b.z); G.add(m); }
+      if (b.m) { const h = 1.6 * b.m, m = new THREE.Mesh(new THREE.CylinderGeometry(R * .7, R * .7, h, 6), made); m.position.set(b.x, h / 2 + 0.25, b.z); G.add(m); }
+    });
+  }
+  // release points and arcs to the rim
+  let relSum = 0, relN = 0;
+  list.forEach((s, i) => {
+    const [x, z] = P(s), h = releaseFt(s); relSum += h; relN++;
+    if (v3.layers.rel) {
+      const dot = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 8), new THREE.MeshLambertMaterial({ color: 0xffd27a }));
+      dot.position.set(x, h, z); G.add(dot);
+      G.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x, 0, z), new THREE.Vector3(x, h, z)]),
+        new THREE.LineBasicMaterial({ color: 0xffd27a, transparent: true, opacity: .35 })));
+    }
+    if (v3.layers.arcs) {
+      const d = Math.hypot(x, z);
+      // misses end a little off the rim, scattered
+      const ex = s.m ? 0 : Math.sin(i * 7.3) * 1.1, ez = s.m ? 0 : Math.cos(i * 3.1) * 1.1;
+      const apex = Math.max(h, 10) + Math.min(8, 1 + d * 0.32);
+      const pts = []; for (let k = 0; k <= 24; k++) {
+        const t = k / 24, px = x + (ex - x) * t, pz = z + (ez - z) * t;
+        const py = (1 - t) * (1 - t) * h + 2 * (1 - t) * t * (2 * apex - (h + 10) / 2) + t * t * 10;
+        pts.push(new THREE.Vector3(px, py, pz));
+      }
+      G.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+        new THREE.LineBasicMaterial({ color: s.m ? 0xff7a1a : 0x3a8f99, transparent: true, opacity: s.m ? .8 : .45 })));
+    }
+  });
+  const known = new Set(list.filter(s => +HEIGHTS[s.pid]).map(s => s.pid)).size, all = new Set(list.map(s => s.pid)).size;
+  $("v3note").innerHTML = `${list.length} shots by ${v3.team}. <b>Release heights are estimates</b> from each player's height and the shot type ` +
+    `(no public data measures the real release). Mean estimated release ${relN ? (relSum / relN * 0.3048).toFixed(2) + " m" : "–"}. ` +
+    `Player heights known for ${known} of ${all} players${known < all ? " (others use 2.01 m)" : ""}. Arcs are drawn, not tracked.`;
+}
+function currentFiltered() {
+  return shots.filter(s => s.e <= st.t && st.sel.has(s.pid) && qOk(s.q, st.q) && (st.r === "all" || (st.r === "made") === !!s.m));
 }
 
 // ---------- tooltip ----------
