@@ -8,7 +8,23 @@
 <link rel="icon" href="app/icon-192.png">
 <link rel="apple-touch-icon" href="app/icon-192.png">
 <meta name="theme-color" content="#0b0d12">
-<script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js"));</script>
+<script>if ("serviceWorker" in navigator) addEventListener("load", () => navigator.serviceWorker.register("sw.js"));
+// install button: uses Chrome's install prompt when it is offered, otherwise shows the manual steps
+let installEvt = null;
+addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; });
+addEventListener("appinstalled", () => { const b = document.getElementById("installBtn"); if (b) b.style.display = "none"; });
+addEventListener("DOMContentLoaded", () => {
+  const b = document.getElementById("installBtn"), h = document.getElementById("installHelp");
+  if (matchMedia("(display-mode: standalone)").matches) { b.style.display = "none"; return; }
+  b.onclick = async () => {
+    if (installEvt) { installEvt.prompt(); await installEvt.userChoice; installEvt = null; return; }
+    const ios = /iPhone|iPad/.test(navigator.userAgent);
+    h.innerHTML = ios ? "In Safari: tap <b>Share</b> → <b>Add to Home Screen</b>."
+      : "In Chrome: tap <b>⋮</b> (top right) → <b>Add to Home screen</b> → <b>Install</b>. On a computer: the install icon at the right of the address bar, or ⋮ → <b>Cast, save and share</b> → <b>Install page as app</b>. If it only offers a shortcut, reload the page once and try again.";
+    h.classList.toggle("hide");
+  };
+});
+</script>
 <style>
   :root { --bg:#0b0d12; --panel:#151922; --panel2:#0f1218; --line:#3a4150; --text:#e8eaf0; --dim:#8a92a5;
           --made:#f5c518; --miss:#e0447a; --accent:#5aa9ff; --a:#5aa9ff; --b:#ff8a3d; }
@@ -133,7 +149,8 @@
 </style>
 </head>
 <body>
-<header><h1>NBA Shot Maps</h1><div class="sub" id="sub">Loading…</div></header>
+<header><h1 style="display:flex;align-items:center;justify-content:center;gap:10px">NBA Shot Maps <button id="installBtn" class="chip" style="font-size:13px">⬇ App</button></h1>
+<div class="infobox hide" id="installHelp" style="max-width:520px;margin:6px auto;text-align:left"></div><div class="sub" id="sub">Loading…</div></header>
 <div class="wrap">
   <div class="tabs"><button id="tabGame" class="on">Game</button><button id="tabCmp">Compare players</button><button id="tabTeam">Compare teams</button><button id="tabLoad">Player load</button><button id="tabLand">Landscape</button></div>
 
