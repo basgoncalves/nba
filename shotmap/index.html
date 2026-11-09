@@ -159,7 +159,8 @@
       <div class="mid" id="mid">
         <div class="score"><small id="tA"></small><span id="sA">0</span><span style="color:var(--dim)">–</span><span id="sH">0</span><small id="tH"></small></div>
         <div class="clock" id="clk">Final</div>
-        <div class="bar"><button id="play" aria-label="Play">▶</button><input type="range" id="time" min="0" max="2880" step="5" value="2880" aria-label="Game time"><button id="toEnd">End</button></div>
+        <div class="hint" id="hiShot" style="text-align:center;min-height:1.3em"></div>
+        <div class="bar"><button id="play" aria-label="Play">▶</button><button id="prevShot" aria-label="Previous shot">‹</button><button id="nextShot" aria-label="Next shot">›</button><input type="range" id="time" min="0" max="2880" step="5" value="2880" aria-label="Game time"><button id="toEnd">End</button></div>
         <div class="ticks" id="ticks"></div>
         <div class="hint" id="scoreNote" style="text-align:center"></div>
       </div>
@@ -455,8 +456,21 @@ async function init() {
   $("all").onclick = () => { st.role = "all"; roleChips(); shots.forEach(s => st.sel.add(s.pid)); renderPlayers(); drawGame(); };
   $("none").onclick = () => { st.role = "all"; roleChips(); st.sel.clear(); renderPlayers(); drawGame(); };
   $("cmpBtn").onclick = () => { const [a, b] = [...st.sel]; openCompare(a, b, "game", $("game").value); };
-  $("time").oninput = e => { stopPlay(); setTime(+e.target.value); };
-  $("toEnd").onclick = () => { stopPlay(); setTime(st.max); };
+  $("time").oninput = e => { stopPlay(); st.hi = null; setTime(+e.target.value); };
+  $("toEnd").onclick = () => { stopPlay(); st.hi = null; setTime(st.max); };
+  // shot by shot: jump the clock to the previous / next shot (of the ticked players, quarter and result filters)
+  const stepShot = d => {
+    stopPlay();
+    const L = shots.map((s, i) => [s, i]).filter(([s]) => st.sel.has(s.pid) && qOk(s.q, st.q) && (st.r === "all" || (st.r === "made") === !!s.m))
+      .sort((a, b) => a[0].e - b[0].e || a[1] - b[1]).map(([s]) => s);
+    if (!L.length) return;
+    let k = st.hi ? L.indexOf(st.hi) : -1;
+    if (k < 0) { k = L.filter(s => s.e <= st.t).length - 1; if (d < 0) k++; }
+    const n = Math.max(0, Math.min(L.length - 1, k + d));
+    st.hi = L[n]; setTime(st.hi.e);
+  };
+  $("prevShot").onclick = () => stepShot(-1);
+  $("nextShot").onclick = () => stepShot(1);
   $("play").onclick = () => {
     if (st.timer) return stopPlay();
     if (st.t >= st.max) setTime(0);
@@ -548,14 +562,14 @@ function scoreAt(t) {
 }
 function initClock() {
   const maxQ = Math.max(4, ...shots.map(s => s.q));
-  st.max = 2880 + (maxQ - 4) * 300; st.t = st.max;
+  st.max = 2880 + (maxQ - 4) * 300; st.t = st.max; st.hi = null;
   const r = $("time"); r.max = st.max; r.value = st.max;
   const marks = ["Q1", "Q2", "Q3", "Q4"].concat(maxQ > 4 ? ["OT"] : []);
   $("ticks").innerHTML = marks.map(m => `<span>${m}</span>`).join("") + "<span>End</span>";
   $("scoreNote").textContent = st.tl ? "" : "Score from field goals only (free throws not yet available for this game)";
   stopPlay();
 }
-function stopPlay() { clearInterval(st.timer); st.timer = null; $("play").textContent = "▶"; }
+function stopPlay() { if (st.timer) st.hi = null; clearInterval(st.timer); st.timer = null; $("play").textContent = "▶"; }
 function setTime(t) { st.t = Math.max(0, Math.min(st.max, t)); $("time").value = st.t; drawGame(); }
 
 // ---------- game view ----------
@@ -651,7 +665,7 @@ function drawGame() {
   });
   const head = (o, al) => `<div style="text-align:${al}"><b>${o.t}</b> <span class="hint">${o.S.fgm}/${o.S.fga} (${pct(o.S.fgm, o.S.fga)}) · 3P ${o.S.m3}/${o.S.a3}</span></div>`;
   $("ct0").outerHTML = `<div id="ct0" class="court hcourt"><div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;margin:0 4px 4px">${head(side[0], "left")}${head(side[1], "right")}</div>
-    <svg viewBox="-472 -252 944 504"><g transform="rotate(-90)">${courtLines(true)}${side[0].g}${side[1].g}</g></svg></div>`;
+    <svg viewBox="-472 -252 944 504"><g transform="rotate(-90)">${courtLines(true)}${side[0].g}${side[1].g}${hiMark()}</g></svg></div>`;
   $("ct1").innerHTML = ""; $("ct1").className = "hide";
   legend();
   const three = st.view === "3d", ld = st.view === "load";
@@ -661,6 +675,15 @@ function drawGame() {
   $("ct0").classList.toggle("hide", three || ld);
   if (three) draw3d(f);
   if (ld) drawGameLoad();
+}
+
+// ---------- highlighted shot (shot-by-shot stepping) ----------
+function hiMark() {
+  const h = st.hi;
+  $("hiShot").innerHTML = h ? `<b style="color:var(--text)">${esc((st.names[h.pid] || ["?"])[0])}</b> · ${h.v}PT ${esc(h.d || "")} · ${h.m ? '<span style="color:var(--made)">made</span>' : '<span style="color:var(--miss)">missed</span>'} · ${Math.round(Math.hypot(h.x, h.y) / 10)} ft` : "";
+  if (!h || !st.sel.has(h.pid)) return "";
+  const away = h.t === teamsOf()[0], x = away ? -h.x : h.x, y = away ? -Y(h.y) : Y(h.y);
+  return `<circle cx="${x}" cy="${y}" r="16" fill="none" stroke="#fff" stroke-width="4"><animate attributeName="r" values="12;22;12" dur="1.2s" repeatCount="indefinite"/></circle>`;
 }
 
 // ---------- estimated player load from the box score ----------
@@ -1172,6 +1195,12 @@ async function draw3d(f) {
       }
     });
   });
+  if (st.hi && shown.includes(st.hi.t) && st.sel.has(st.hi.pid)) {   // highlighted shot: white beacon + ring
+    const ti = shown.indexOf(st.hi.t), [x, z] = P(st.hi, ti), W = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.2, 0.25, 8, 32), W); ring.rotation.x = Math.PI / 2; ring.position.set(x, 0.3, z); G.add(ring);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 22, 6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .6 }));
+    pole.position.set(x, 11, z); G.add(pole);
+  }
   const ids = new Set(f.filter(s => shown.includes(s.t)).map(s => s.pid)), known = [...ids].filter(id => +HEIGHTS[id]).length;
   $("v3note").innerHTML = `${count} shots${both ? "" : " by " + v3.team}. <b>Release heights are estimates</b> from each player's height and the shot type ` +
     `(no public data measures the real release): mean ${relN ? (relSum / relN * 0.3048).toFixed(2) + " m" : "–"}. ` +
