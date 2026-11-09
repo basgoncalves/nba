@@ -274,12 +274,13 @@ const COLORS = [["freq","Shot frequency"],["fg","FG%"],["ast","Assisted %"]];
 const PCOLORS = COLORS.concat([["passes","Assists given"]]);
 
 // ---------- court drawing (NBA legacy coords: basket at 0,0, 1 unit = 0.1 ft) ----------
-const VB = "-252 88 504 384", VB_FULL = "-252 -472 504 944", Y = y => 422 - y;
+const VB = "-252 88 504 384", VB_EXT = "-252 -2 504 474", VB_FULL = "-252 -472 504 944", Y = y => 422 - y;
 // full = whole court: the far half is the near half mirrored about half court (Y = 0)
 function courtLines(full) {
   const s = 'stroke="var(--line)" stroke-width="2" fill="none"';
   if (full) return `<rect x="-250" y="-470" width="500" height="940" ${s}/><line x1="-250" y1="0" x2="250" y2="0" ${s}/>
     <circle cx="0" cy="0" r="60" ${s}/>${halfLines(s)}<g transform="scale(1,-1)">${halfLines(s)}</g>`;
+  if (full === "ext") return `<rect x="-250" y="0" width="500" height="470" ${s}/>${halfLines(s)}<path d="M-60 0 A60 60 0 0 0 60 0" ${s}/>`;
   return `<rect x="-250" y="90" width="500" height="380" ${s}/>${halfLines(s)}<path d="M-60 0 A60 60 0 0 0 60 0" ${s}/>`;
 }
 function halfLines(s) {
@@ -295,9 +296,10 @@ function halfLines(s) {
   <path d="M-220 ${Y(92.5)} A237.5 237.5 0 0 1 220 ${Y(92.5)}" ${s}/>`;
 }
 const inCourt = s => s.y <= 332 && Math.abs(s.x) <= 250;
+const inHalf = s => s.y <= 422 && Math.abs(s.x) <= 250;
 const inFull = s => s.y <= 892 && Math.abs(s.x) <= 250;
 function dotMarks(list, key, full) {
-  return list.filter(full ? inFull : inCourt).map((s, i) => {
+  return list.filter(full === "ext" ? inHalf : full ? inFull : inCourt).map((s, i) => {
     const x = s.x, y = Y(s.y), info = `data-k="${key}" data-i="${i}"`;
     return s.m ? `<circle cx="${x}" cy="${y}" r="7" fill="var(--made)" fill-opacity=".85" ${info}/>`
       : `<path d="M${x-5} ${y-5}L${x+5} ${y+5}M${x+5} ${y-5}L${x-5} ${y+5}" stroke="var(--miss)" stroke-width="3"/><circle cx="${x}" cy="${y}" r="7" fill="transparent" ${info}/>`;
@@ -636,10 +638,11 @@ function drawGame() {
   $("clk").textContent = clockText(st.t);
   teamsOf().map(t => {
     // a shot from beyond the cropped half (e.g. a heave from the backcourt) switches this team to the full court
-    const full = shots.some(s => s.t === t && s.y > 332);
-    const ts = f.filter(s => s.t === t), S = summary(ts); window._g[t] = ts.filter(full ? inFull : inCourt);
-    return `<div class="court${full ? " full" : ""}"><h3>${t}</h3><div class="stat">FG ${S.fgm}/${S.fga} (${pct(S.fgm, S.fga)}) · 3PT ${S.m3}/${S.a3} (${pct(S.m3, S.a3)})${full ? " · full court" : ""}</div>
-      <svg viewBox="${full ? VB_FULL : VB}">${courtLines(full)}${dotMarks(ts, "g:" + t, full)}</svg></div>`;
+    // a shot from beyond half court switches this team to the full court; one between 33 ft and half court shows the whole half
+    const far = Math.max(0, ...shots.filter(s => s.t === t).map(s => s.y)), full = far > 422 ? true : far > 332 ? "ext" : false;
+    const ts = f.filter(s => s.t === t), S = summary(ts); window._g[t] = ts.filter(full === "ext" ? inHalf : full ? inFull : inCourt);
+    return `<div class="court${full === true ? " full" : ""}"><h3>${t}</h3><div class="stat">FG ${S.fgm}/${S.fga} (${pct(S.fgm, S.fga)}) · 3PT ${S.m3}/${S.a3} (${pct(S.m3, S.a3)})${full === true ? " · full court" : ""}</div>
+      <svg viewBox="${full === "ext" ? VB_EXT : full ? VB_FULL : VB}">${courtLines(full)}${dotMarks(ts, "g:" + t, full)}</svg></div>`;
   }).forEach((html, i) => $("ct" + i).outerHTML = html.replace('<div class=', `<div id="ct${i}" class=`));
   legend();
   const three = st.view === "3d";
@@ -1062,7 +1065,7 @@ async function draw3d(f) {
   }).join("");
   $("v3legend").onclick = e => { const k = e.target.closest(".lg")?.dataset.k; if (!k) return; v3.layers[k] = !v3.layers[k]; draw3d(currentFiltered()); };
   const both = v3.team === "both";
-  const full = both || shots.some(s => s.t === v3.team && s.y > 332);
+  const full = both || shots.some(s => s.t === v3.team && s.y > 422);
   if (T3.full !== full) buildCourt(full);
   const G = T3.dyn; while (G.children.length) { const c = G.children.pop(); c.geometry && c.geometry.dispose(); }
   // court position: the first team shoots at the near basket (z = 0); with both teams the second shoots at the far one
