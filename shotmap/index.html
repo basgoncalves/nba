@@ -1321,25 +1321,59 @@ async function drawLand() {
   const rx = Math.max(...xs.map(v => Math.abs(v - cx))) * 1.12 || 1, ry = Math.max(...ys.map(v => Math.abs(v - cy))) * 1.12 || 1;
   const X = v => W / 2 + (v - cx) / rx * (W / 2 - pad), Y = v => H / 2 - (v - cy) / ry * (H / 2 - pad);
   const rank = (arr, v) => 1 + arr.filter(a => a > v).length;
-  let g = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">`;
-  g += `<rect x="${W / 2}" y="${pad / 2}" width="${W / 2 - pad / 2}" height="${H / 2 - pad / 2}" fill="#3ddc8410"/><rect x="${pad / 2}" y="${H / 2}" width="${W / 2 - pad / 2}" height="${H / 2 - pad / 2}" fill="#ff4b6e10"/>`;
-  g += `<line x1="${pad / 2}" x2="${W - pad / 2}" y1="${H / 2}" y2="${H / 2}" stroke="var(--line)"/><line y1="${pad / 2}" y2="${H - pad / 2}" x1="${W / 2}" x2="${W / 2}" stroke="var(--line)"/>`;
-  g += `<line x1="${pad / 2}" y1="${pad / 2}" x2="${W - pad / 2}" y2="${H - pad / 2}" stroke="var(--line)" stroke-dasharray="4 5"/>`;
-  g += `<text x="${W / 2}" y="${H - 6}" text-anchor="middle" fill="var(--dim)" font-size="15">${esc(mx[0])} →</text>`;
-  g += `<text transform="translate(16 ${H / 2}) rotate(-90)" text-anchor="middle" fill="var(--dim)" font-size="15">${esc(my[0])} →</text>`;
   const labelAll = la.mode === "teams" || pts.length <= 40;
-  const extremes = new Set([...pts].sort((a, b) => (b.x * mx[2] - cx) / rx + (b.y * my[2] - cy) / ry - ((a.x * mx[2] - cx) / rx + (a.y * my[2] - cy) / ry)).slice(0, 6).map(p => p.id)
-    .concat([...pts].sort((a, b) => (a.x * mx[2] - cx) / rx + (a.y * my[2] - cy) / ry - ((b.x * mx[2] - cx) / rx + (b.y * my[2] - cy) / ry)).slice(0, 4).map(p => p.id)));
-  pts.forEach((p, i) => {
-    const x = X(p.x * mx[2]), y = Y(p.y * my[2]), hi = la.hi.has(p.id), lab = labelAll || hi || extremes.has(p.id);
-    if (la.mode === "teams") g += `<circle cx="${x}" cy="${y}" r="17" fill="var(--panel2)" stroke="var(--accent)" stroke-width="1.5" data-la="${i}"/><text x="${x}" y="${y + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="var(--text)" pointer-events="none">${esc(p.n)}</text>`;
-    else g += `<circle cx="${x}" cy="${y}" r="${hi ? 7 : 4.5}" fill="${hi ? "var(--b)" : "var(--accent)"}" opacity="${hi ? 1 : .7}" data-la="${i}"/>` +
-      (lab ? `<text x="${x + 7}" y="${y + 4}" font-size="${hi ? 13 : 11}" fill="${hi ? "var(--text)" : "var(--dim)"}" pointer-events="none">${esc(p.n.split(" ").slice(-1)[0])}</text>` : "");
-  });
-  g += `</svg>`;
-  $("laPlot").innerHTML = g + `<div class="hint" id="laTip" style="min-height:2.6em;margin-top:4px">Tap a dot for its numbers and ranks.</div>`;
+  const score = p => (p.x * mx[2] - cx) / rx + (p.y * my[2] - cy) / ry;
+  const extremes = new Set([...pts].sort((a, b) => score(b) - score(a)).slice(0, 6).map(p => p.id)
+    .concat([...pts].sort((a, b) => score(a) - score(b)).slice(0, 4).map(p => p.id)));
+  const key = la.mode + la.x + la.y + per;
+  if (la.zkey !== key) { la.z = { x: 0, y: 0, s: 1 }; la.zkey = key; }   // new selection: zoom out
+  const render = () => {
+    const z = la.z, zx = v => (v - z.x) * z.s, zy = v => (v - z.y) * z.s, k = z.s;
+    let g = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;touch-action:${k > 1 ? "none" : "pan-y"};user-select:none">`;
+    g += `<g transform="scale(${k}) translate(${-z.x} ${-z.y})">`;
+    g += `<rect x="${W / 2}" y="${pad / 2}" width="${W / 2 - pad / 2}" height="${H / 2 - pad / 2}" fill="#3ddc8410"/><rect x="${pad / 2}" y="${H / 2}" width="${W / 2 - pad / 2}" height="${H / 2 - pad / 2}" fill="#ff4b6e10"/>`;
+    const ns = 'vector-effect="non-scaling-stroke"';
+    g += `<line x1="${pad / 2}" x2="${W - pad / 2}" y1="${H / 2}" y2="${H / 2}" stroke="var(--line)" ${ns}/><line y1="${pad / 2}" y2="${H - pad / 2}" x1="${W / 2}" x2="${W / 2}" stroke="var(--line)" ${ns}/>`;
+    g += `<line x1="${pad / 2}" y1="${pad / 2}" x2="${W - pad / 2}" y2="${H - pad / 2}" stroke="var(--line)" stroke-dasharray="4 5" ${ns}/></g>`;
+    pts.forEach((p, i) => {
+      const x = zx(X(p.x * mx[2])), y = zy(Y(p.y * my[2])), hi = la.hi.has(p.id), lab = labelAll || hi || extremes.has(p.id) || k >= 2.5;
+      if (x < -20 || x > W + 20 || y < -20 || y > H + 20) return;
+      if (la.mode === "teams") g += `<circle cx="${x}" cy="${y}" r="17" fill="${hi ? "var(--b)" : "var(--panel2)"}" stroke="var(--accent)" stroke-width="1.5" data-la="${i}"/><text x="${x}" y="${y + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="${hi ? "#000" : "var(--text)"}" pointer-events="none">${esc(p.n)}</text>`;
+      else g += `<circle cx="${x}" cy="${y}" r="${hi ? 7 : 4.5}" fill="${hi ? "var(--b)" : "var(--accent)"}" opacity="${hi ? 1 : .7}" data-la="${i}"/>` +
+        (lab ? `<text x="${x + 7}" y="${y + 4}" font-size="${hi ? 13 : 11}" fill="${hi ? "var(--text)" : "var(--dim)"}" pointer-events="none">${esc(p.n.split(" ").slice(-1)[0])}</text>` : "");
+    });
+    g += `<rect x="0" y="${H - 24}" width="${W}" height="24" fill="var(--panel)" opacity=".8"/><text x="${W / 2}" y="${H - 7}" text-anchor="middle" fill="var(--dim)" font-size="15">${esc(mx[0])} →</text>`;
+    g += `<text transform="translate(16 ${H / 2}) rotate(-90)" text-anchor="middle" fill="var(--dim)" font-size="15">${esc(my[0])} →</text></svg>`;
+    $("laSvgBox").innerHTML = g;
+    $("laReset").classList.toggle("hide", k <= 1);
+  };
+  $("laPlot").innerHTML = `<div style="position:relative"><div id="laSvgBox"></div><button class="chip hide" id="laReset" style="position:absolute;top:6px;right:6px">Reset zoom</button></div>` +
+    `<div class="hint" id="laTip" style="min-height:2.6em;margin-top:4px">Tap a dot to highlight it · pinch, scroll or double-tap to zoom · drag to move.</div>`;
+  render();
   const xr = pts.map(p => p.x * mx[2]), yr = pts.map(p => p.y * my[2]);
-  $("laPlot").onclick = e => { const i = e.target.dataset?.la; if (i === undefined) return; const p = pts[i];
+  const clampZ = () => { const z = la.z; z.x = Math.max(0, Math.min(W - W / z.s, z.x)); z.y = Math.max(0, Math.min(H - H / z.s, z.y)); };
+  // zoom around a point (svg units), keeping it fixed on screen
+  const zoomAt = (f, sx, sy) => { const z = la.z, ns = Math.max(1, Math.min(12, z.s * f));
+    const bx = z.x + sx / z.s, by = z.y + sy / z.s; z.s = ns; z.x = bx - sx / ns; z.y = by - sy / ns; clampZ(); render(); };
+  const box = $("laSvgBox"), toSvg = e => { const r = box.getBoundingClientRect(); return [(e.clientX - r.left) * W / r.width, (e.clientY - r.top) * H / r.height]; };
+  $("laReset").onclick = () => { la.z = { x: 0, y: 0, s: 1 }; render(); };
+  box.onwheel = e => { e.preventDefault(); const [sx, sy] = toSvg(e); zoomAt(e.deltaY < 0 ? 1.25 : 0.8, sx, sy); };
+  box.ondblclick = e => { const [sx, sy] = toSvg(e); zoomAt(2, sx, sy); };
+  const P = new Map(); let moved = 0, pinch0 = 0, last = null;
+  box.onpointerdown = e => { P.set(e.pointerId, toSvg(e)); moved = 0; last = toSvg(e);
+    if (P.size === 2) { const [a, b] = [...P.values()]; pinch0 = Math.hypot(a[0] - b[0], a[1] - b[1]); } };
+  box.onpointermove = e => { if (!P.has(e.pointerId)) return; const cur = toSvg(e); P.set(e.pointerId, cur);
+    if (P.size === 2) { const [a, b] = [...P.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      if (pinch0) { zoomAt(d / pinch0, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2); moved = 99; } pinch0 = d; return; }
+    if (la.z.s > 1 && last) { const dx = cur[0] - last[0], dy = cur[1] - last[1]; moved += Math.abs(dx) + Math.abs(dy);
+      la.z.x -= dx / la.z.s; la.z.y -= dy / la.z.s; clampZ(); render(); }
+    last = cur; };
+  const up = e => { P.delete(e.pointerId); if (P.size < 2) pinch0 = 0; if (!P.size) last = null; };
+  box.onpointerup = up; box.onpointercancel = up;
+  box.onclick = e => { if (moved > 6) return; const i = e.target.dataset?.la; if (i === undefined) return; const p = pts[i];
+    la.hi.has(p.id) ? la.hi.delete(p.id) : la.hi.add(p.id);
+    $("laHi").innerHTML = [...la.hi].map(id => pts.find(q => q.id === id)).filter(Boolean).map(q => `<button class="chip on" data-id="${q.id}">${esc(q.n)} ✕</button>`).join("");
+    render();
     $("laTip").innerHTML = `<b>${esc(p.n)}</b>${p.t ? " · " + p.t : ""} · ${p.g} games<br>${esc(mx[0])}: ${p.x.toFixed(1)} (#${rank(xr, p.x * mx[2])}) · ${esc(my[0])}: ${p.y.toFixed(1)} (#${rank(yr, p.y * my[2])})`; };
 }
 
