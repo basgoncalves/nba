@@ -1427,8 +1427,11 @@ function drawZoom() {
   const sides = [["a", ls.a], ["b", ls.b]].filter(([, id]) => id && L.players[id]);
   const W = 700, H = 340, pad = 34, X = t => pad + (W - pad - 34) * t / (L.bin * 10);
   $("lzBody").innerHTML = sides.map(([k, id]) => {
-    const z = (Z.players[id] || {})[bin], col = k === "a" ? "var(--a)" : "var(--b)", p = L.players[id];
+    let z = (Z.players[id] || {})[bin]; const col = k === "a" ? "var(--a)" : "var(--b)", p = L.players[id];
     if (!z || !z.s.length) return `<div class="hint" style="margin:8px 0">${esc(p.n)}: not on court in these 10 seconds</div>`;
+    // the time axis is the game clock: frames while the clock is stopped (or set back by the officials) would draw the
+    // line backwards, so only frames where the clock moved forward are drawn
+    { let last = -1; z = { ...z, s: z.s.filter(r => r[0] > last ? (last = r[0], true) : false) }; }
     // top: speed (left axis, 0-9 m/s) and acceleration (right axis, -6..6 m/s2); middle: movement strip + time; bottom: one bar per step
     const top = 14, bot = 190, Ys = v => bot - v / 10 / 9 * (bot - top), Ya = a => bot - (a / 10 + 6) / 12 * (bot - top);
     let g = `<svg viewBox="0 0 ${W} ${H}">`;
