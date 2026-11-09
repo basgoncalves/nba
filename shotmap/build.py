@@ -20,6 +20,8 @@ for sub in ("players", "teams"):
     os.makedirs(os.path.join(data, sub), exist_ok=True)
 
 shutil.copy(os.path.join(here, "index.html"), out)
+shutil.copy(os.path.join(here, "sw.js"), out)   # installable app (PWA)
+shutil.copytree(os.path.join(here, "app"), os.path.join(out, "app"), dirs_exist_ok=True)
 if os.path.isdir(os.path.join(out, "raw")):
     shutil.rmtree(os.path.join(out, "raw"))
 os.makedirs(os.path.join(here, "raw"), exist_ok=True)
