@@ -1068,11 +1068,14 @@ async function drawLoad() {
   const MC = ls.lib.moment_contributions || {}, TASKS = ["walk", "jog", "run", "sprint", "accel", "decel", "cut"];
   ls.task = ls.task || "all";
   chips("lMusT", [["all", "All tasks"], ...TASKS.filter(t => MC[t]).map(t => [t, t])], ls, "task", drawLoad);
-  $("lMus").innerHTML = sides.map(({ k, p }) => `<div class="hint" style="color:${col(k)}">${esc(p.n)}${ls.task !== "all" ? ` · ${(p.phases[ls.task] || 0).toLocaleString()} ${ls.task} steps` : ""}</div>` + Object.entries(MOM).map(([m, lab]) => {
-    const gs = Object.entries((ls.task === "all" ? p.contrib : MC[ls.task] || {})[m] || {}).sort((x, y) => y[1] - x[1]);
-    return `<div style="font-size:13px">${lab}</div><div class="bar">${gs.map(([g, v], i) => `<span style="width:${100 * v}%;background:${musCol(g, i)}" title="${g} ${Math.round(100 * v)}%"></span>`).join("")}</div>
-      <div class="mlab" style="margin:-4px 0 8px">${gs.map(([g, v], i) => `<span><span style="color:${musCol(g, i)}">■</span> ${g} ${Math.round(100 * v)}%</span>`).join("")}</div>`;
-  }).join("")).join("<hr style='border-color:var(--line)'>");
+  // players side by side; percentages inside the bars; one muscle legend after the last bar
+  $("lMus").innerHTML = `<div style="display:grid;grid-template-columns:repeat(${sides.length},minmax(0,1fr));gap:12px">` + sides.map(({ k, p }) =>
+    `<div><div class="hint" style="color:${col(k)}">${esc(p.n)}${ls.task !== "all" ? ` · ${(p.phases[ls.task] || 0).toLocaleString()} ${ls.task} steps` : ""}</div>` + Object.entries(MOM).map(([m, lab]) => {
+      const gs = Object.entries((ls.task === "all" ? p.contrib : MC[ls.task] || {})[m] || {}).sort((x, y) => y[1] - x[1]);
+      return `<div style="font-size:12px;margin-top:6px">${lab}</div><div class="bar" style="height:18px">${gs.map(([g, v], i) =>
+        `<span style="width:${100 * v}%;background:${musCol(g, i)};color:#0b0d12;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;overflow:hidden" title="${g} ${Math.round(100 * v)}%">${v >= .14 ? Math.round(100 * v) + "%" : ""}</span>`).join("")}</div>`;
+    }).join("") + `</div>`).join("") + `</div>` +
+    `<div class="mlab" style="margin-top:10px">${Object.entries(MUSC).map(([g, c]) => `<span><span style="color:${c}">■</span> ${g}</span>`).join("")}</div>`;
   // phases
   const PH = ["walk", "jog", "run", "sprint", "accel", "decel", "cut"], PC = ["#3b5bdb", "#1fb5c9", "#3ddc84", "#f5e04a", "#ff8a3d", "#ff4b6e", "#c77dff"];
   $("lPh").innerHTML = sides.map(({ k, p }) => `<div class="hint" style="color:${col(k)}">${esc(p.n)} · ${p.steps.toLocaleString()} steps</div>
