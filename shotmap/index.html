@@ -718,10 +718,10 @@ const EST_L = [
   ["steps", "Steps", v => Math.round(v), v => Math.round(v) + "/min"],
   ["nacc", "Hard accels", v => Math.round(v), v => (v * 10).toFixed(1) + "/10 min"],
   ["ndec", "Hard decels", v => Math.round(v), v => (v * 10).toFixed(1) + "/10 min"],
-  ["hip", "Hip", v => k1(v) + " BW", v => v.toFixed(2) + " BW"],
+  ["hip", "Hip CF", v => k1(v) + " BW", v => v.toFixed(2) + " BW"],
   ["ham_force", "Hamstring", v => k1(v) + " BW", v => v.toFixed(2) + " BW"],
-  ["knee_med", "Knee medial", v => k1(v) + " BW", v => v.toFixed(2) + " BW"],
-  ["knee_lat", "Knee lateral", v => k1(v) + " BW", v => v.toFixed(2) + " BW"],
+  ["knee_med", "Medial knee CF", v => k1(v) + " BW", v => v.toFixed(2) + " BW"],
+  ["knee_lat", "Lateral knee CF", v => k1(v) + " BW", v => v.toFixed(2) + " BW"],
   ["acl", "ACL", v => Math.round(v) + " BW", v => v.toFixed(3) + " BW"],
   ["achilles", "Achilles", v => k1(v) + " BW", v => v.toFixed(2) + " BW"]];
 const BODY = ["dist", "steps", "nacc", "ndec"];
@@ -733,7 +733,7 @@ function drawGameLoad() {
   const kin = BODY.includes(gl.m), mean = gl.agg === "mean", fmt = mean ? fmtMean : fmtSum;
   const val = m => { const v = a + b * m; return !mean ? v : kin ? v / m : v / (EST.steps[0] + EST.steps[1] * m); };
   $("iGLoad").innerHTML = `Estimated from <b>minutes played</b> only, using a model fitted on 162 players in 8 full 2015-16 games with optical tracking. ` +
-    `Typical error for one player in one game: <b>±${err}%</b> (shaded). <b>Cumulative</b> = game total; <b>Mean</b> = per minute played (whole body) or the average peak force per step (joints and tissues), which varies little between players because the estimate comes from minutes. Minutes explained about 90% of the tracked load; pace, shot types, rebounds, steals and blocks did not improve it, ` +
+    `Typical error for one player in one game: <b>±${err}%</b> (shaded). <b>Cumulative</b> = game total; CF = contact force. <b>Mean</b> = per minute played (whole body) or the average peak force per step (joints and tissues), which varies little between players because the estimate comes from minutes. Minutes explained about 90% of the tracked load; pace, shot types, rebounds, steals and blocks did not improve it, ` +
     `so two players with the same minutes get the same estimate.` + (kin ? "" : ` <span class="warnbtn">⚠️</span> Joint and muscle forces are game sums per step from placeholder movement coefficients, not yet from BioScout simulations.`);
   if (!st.box) { $("gLoadBars").innerHTML = '<div class="hint">No box score for this game yet.</div>'; return; }
   const ix = st.box.cols.indexOf("MIN") + 3;
