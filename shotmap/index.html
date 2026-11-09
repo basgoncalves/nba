@@ -944,7 +944,7 @@ async function loadLoadGame() {
   const opts = ps.map(([id, p]) => `<option value="${id}">${esc(p.n)} (${p.t})</option>`).join("");
   $("lpa").innerHTML = opts; $("lpb").innerHTML = `<option value="">— compare with… —</option>` + opts;
   ls.a = ps[0][0]; ls.b = ""; $("lpa").value = ls.a; $("lpb").value = "";
-  chips("lOut", Object.entries(L.outputs).map(([k, o]) => [k, o.label.replace(/ \(.*\)/, "").replace(" contact force", "")]).concat([["shots3d", "3D shots"]]), ls, "out", drawLoad);
+  chips("lOut", Object.entries(L.outputs).map(([k, o]) => [k, ({ knee_med: "Medial knee CF", knee_lat: "Lateral knee CF", hip: "Hip CF" })[k] || o.label.replace(/ \(.*\)/, "").replace(" contact force", " CF")]).concat([["shots3d", "3D shots"]]), ls, "out", drawLoad);
   $("iModel").innerHTML = L.library.status === "placeholder"
     ? `<b>Model estimates with placeholder coefficients.</b> Movement (speed, acceleration, cuts, steps) comes from SportVU tracking; the load per step comes from a task library that still uses rough literature-range values, not BioScout simulations. Use for relative comparisons only. Jumps and landings are not included yet.`
     : `Loads estimated with BioScout task library v${L.library.version}.`;
