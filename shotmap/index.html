@@ -716,8 +716,8 @@ const k1 = v => Math.round(v / 100) / 10 + "k";
 const EST_L = [
   ["dist", "Distance", v => (v / 1000).toFixed(2) + " km", v => Math.round(v) + " m/min"],
   ["steps", "Steps", v => Math.round(v), v => Math.round(v) + "/min"],
-  ["nacc", "Hard accels", v => Math.round(v), v => (v * 10).toFixed(1) + "/10 min"],
-  ["ndec", "Hard decels", v => Math.round(v), v => (v * 10).toFixed(1) + "/10 min"],
+  ["nacc", "Hard accels", v => Math.round(v), v => v.toFixed(1) + "/min"],
+  ["ndec", "Hard decels", v => Math.round(v), v => v.toFixed(1) + "/min"],
   ["hip", "Hip CF", v => k1(v) + " BW", v => v.toFixed(2) + " BW"],
   ["ham_force", "Hamstring", v => k1(v) + " BW", v => v.toFixed(2) + " BW"],
   ["knee_med", "Medial knee CF", v => k1(v) + " BW", v => v.toFixed(2) + " BW"],
@@ -752,7 +752,7 @@ function drawGameLoad() {
         <span style="position:relative;height:12px;background:var(--panel2);border-radius:6px">
           <span style="position:absolute;left:0;top:0;bottom:0;width:${w}%;background:${col[ti]};border-radius:6px"></span>
           <span style="position:absolute;left:${w - e}%;width:${2 * e}%;top:-2px;bottom:-2px;background:${col[ti]};opacity:.3;border-radius:3px"></span></span>
-        <span style="text-align:right">${fmt(r.v)}</span></div>`; }).join("");
+        <span style="text-align:right;white-space:nowrap">${fmt(r.v)}</span></div>`; }).join("");
   }).join("") + `<div class="hint" style="margin-top:8px">${label} · ${mean ? (kin ? "per minute played" : "mean peak per step") : "full game total"} · estimate ±${err}%</div>`;
 }
 
