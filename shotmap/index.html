@@ -1059,6 +1059,9 @@ async function drawLoad() {
       <div class="mlab" style="justify-content:center;align-items:center;margin-top:2px">${m.grid.ends[0]} <span class="grad" style="width:140px;background:linear-gradient(90deg,#1d3b8f,#1fb5c9,#3ddc84,#f5e04a,#ff4b2b)"></span> ${m.grid.ends[1]}</div></div>`;
   }).join("");
   // muscle contributions
+  // one fixed colour per muscle, the same in every joint (hamstrings and gastrocnemius appear twice)
+  const MUSC = { "gluteus maximus": "#4dabf7", "hamstrings": "#ff8a3d", "adductor magnus": "#3ddc84", "vasti": "#c77dff",
+    "rectus femoris": "#f5e04a", "gastrocnemius": "#ff4b6e", "soleus": "#20c9b5" }, musCol = (g, i) => MUSC[g] || MUS_COL[i];
   const MOM = { hip_ext: "Hip extension", knee_ext: "Knee extension", knee_flex: "Knee flexion", ankle_pf: "Ankle plantarflexion" };
   // split by task: "all" = weighted by the player's steps in each task; a task = that task's share at peak moment
   if (!ls.lib) ls.lib = await getJSON("load/task_library.json").catch(() => ({}));
@@ -1067,8 +1070,8 @@ async function drawLoad() {
   chips("lMusT", [["all", "All tasks"], ...TASKS.filter(t => MC[t]).map(t => [t, t])], ls, "task", drawLoad);
   $("lMus").innerHTML = sides.map(({ k, p }) => `<div class="hint" style="color:${col(k)}">${esc(p.n)}${ls.task !== "all" ? ` · ${(p.phases[ls.task] || 0).toLocaleString()} ${ls.task} steps` : ""}</div>` + Object.entries(MOM).map(([m, lab]) => {
     const gs = Object.entries((ls.task === "all" ? p.contrib : MC[ls.task] || {})[m] || {}).sort((x, y) => y[1] - x[1]);
-    return `<div style="font-size:13px">${lab}</div><div class="bar">${gs.map(([g, v], i) => `<span style="width:${100 * v}%;background:${MUS_COL[i]}" title="${g} ${Math.round(100 * v)}%"></span>`).join("")}</div>
-      <div class="mlab" style="margin:-4px 0 8px">${gs.map(([g, v], i) => `<span><span style="color:${MUS_COL[i]}">■</span> ${g} ${Math.round(100 * v)}%</span>`).join("")}</div>`;
+    return `<div style="font-size:13px">${lab}</div><div class="bar">${gs.map(([g, v], i) => `<span style="width:${100 * v}%;background:${musCol(g, i)}" title="${g} ${Math.round(100 * v)}%"></span>`).join("")}</div>
+      <div class="mlab" style="margin:-4px 0 8px">${gs.map(([g, v], i) => `<span><span style="color:${musCol(g, i)}">■</span> ${g} ${Math.round(100 * v)}%</span>`).join("")}</div>`;
   }).join("")).join("<hr style='border-color:var(--line)'>");
   // phases
   const PH = ["walk", "jog", "run", "sprint", "accel", "decel", "cut"], PC = ["#3b5bdb", "#1fb5c9", "#3ddc84", "#f5e04a", "#ff8a3d", "#ff4b6e", "#c77dff"];
