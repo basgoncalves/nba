@@ -54,6 +54,7 @@
   .court.a { box-shadow:inset 0 3px 0 var(--a); } .court.b { box-shadow:inset 0 3px 0 var(--b); }
   .court h3 .hint { font-weight:500; }
   .court svg { width:100%; height:auto; display:block; }
+  .hcourt { grid-column:1/-1; }
   @media (max-width:640px) {
     .wrap { padding:0 10px 24px; }
     header { padding:10px 10px 4px; } h1 { font-size:19px; } .tabs { margin:6px 0 8px; flex-wrap:wrap; }
@@ -642,20 +643,21 @@ function drawGame() {
   $("tA").textContent = away; $("tH").textContent = home; $("sA").textContent = sa; $("sH").textContent = sh;
   $("sA").style.color = sa > sh ? "var(--text)" : "var(--dim)"; $("sH").style.color = sh > sa ? "var(--text)" : "var(--dim)";
   $("clk").textContent = clockText(st.t);
-  teamsOf().map(t => {
-    // a shot from beyond the cropped half (e.g. a heave from the backcourt) switches this team to the full court
-    // a shot from beyond half court switches this team to the full court; one between 33 ft and half court shows the whole half
-    const far = Math.max(0, ...shots.filter(s => s.t === t).map(s => s.y)), full = far > 422 ? true : far > 332 ? "ext" : false;
-    const ts = f.filter(s => s.t === t), S = summary(ts); window._g[t] = ts.filter(full === "ext" ? inHalf : full ? inFull : inCourt);
-    return `<div class="court${full === true ? " full" : ""}"><h3>${t}</h3><div class="stat">FG ${S.fgm}/${S.fga} (${pct(S.fgm, S.fga)}) · 3PT ${S.m3}/${S.a3} (${pct(S.m3, S.a3)})${full === true ? " · full court" : ""}</div>
-      <svg viewBox="${full === "ext" ? VB_EXT : full ? VB_FULL : VB}">${courtLines(full)}${dotMarks(ts, "g:" + t, full)}</svg></div>`;
-  }).forEach((html, i) => $("ct" + i).outerHTML = html.replace('<div class=', `<div id="ct${i}" class=`));
+  // one horizontal full court: the away team attacks the left basket, the home team the right one
+  const side = teamsOf().map((t, ti) => {
+    const ts = f.filter(s => s.t === t), S = summary(ts); window._g[t] = ts.filter(inFull);
+    return { t, S, g: `<g transform="${ti === 0 ? "rotate(180)" : ""}">${dotMarks(ts, "g:" + t, true)}</g>` };
+  });
+  const head = (o, al) => `<div style="text-align:${al}"><b>${o.t}</b> <span class="hint">${o.S.fgm}/${o.S.fga} (${pct(o.S.fgm, o.S.fga)}) · 3P ${o.S.m3}/${o.S.a3}</span></div>`;
+  $("ct0").outerHTML = `<div id="ct0" class="court hcourt"><div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;margin:0 4px 4px">${head(side[0], "left")}${head(side[1], "right")}</div>
+    <svg viewBox="-472 -252 944 504"><g transform="rotate(-90)">${courtLines(true)}${side[0].g}${side[1].g}</g></svg></div>`;
+  $("ct1").innerHTML = ""; $("ct1").className = "hide";
   legend();
   const three = st.view === "3d", ld = st.view === "load";
   document.body.classList.toggle("three", three);
   $("v3").classList.toggle("hide", !three);
   $("gLoad").classList.toggle("hide", !ld);
-  ["ct0", "ct1"].forEach(id => $(id).classList.toggle("hide", three || ld));
+  $("ct0").classList.toggle("hide", three || ld);
   if (three) draw3d(f);
   if (ld) drawGameLoad();
 }
