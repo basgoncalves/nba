@@ -162,6 +162,12 @@
         <div class="ticks" id="ticks"></div>
         <div class="hint" id="scoreNote" style="text-align:center"></div>
       </div>
+      <div class="panel hide" id="gLoad" style="grid-column:1/-1;margin-top:0">
+        <div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div id="gLoadM" class="row"></div>
+          <button class="info" data-for="iGLoad" aria-label="How this is estimated">i</button></div>
+        <div class="infobox hide" id="iGLoad"></div>
+        <div id="gLoadBars" style="margin-top:8px"></div>
+      </div>
       <div class="panel hide" id="v3" style="grid-column:1/-1;margin-top:0">
         <div class="row" id="v3team"></div>
         <div class="v3line" id="v3layers"></div>
@@ -416,7 +422,7 @@ async function init() {
 
   chips("quarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], st, "q", drawGame);
   chips("results", [["all","All"],["made","Made"],["miss","Missed"]], st, "r", drawGame);
-  chips("views", [["2d","2D courts"],["3d","3D view"]], st, "view", () => { renderPlayers(); drawGame(); });
+  chips("views", [["2d","2D courts"],["3d","3D view"],["load","Player load"]], st, "view", () => { renderPlayers(); drawGame(); });
   try { HEIGHTS = await getJSON("raw/heights.json"); } catch { HEIGHTS = {}; }
   chips("scopes", [["game","Per game"],["season","Season"],["career","Career"]], cs, "scope", () => { syncScope(); drawCmp(); });
   chips("cQuarters", [["all","All"],["1","Q1"],["2","Q2"],["3","Q3"],["4","Q4"],["ot","OT"]], cs, "q", drawCmp);
@@ -645,11 +651,52 @@ function drawGame() {
       <svg viewBox="${full === "ext" ? VB_EXT : full ? VB_FULL : VB}">${courtLines(full)}${dotMarks(ts, "g:" + t, full)}</svg></div>`;
   }).forEach((html, i) => $("ct" + i).outerHTML = html.replace('<div class=', `<div id="ct${i}" class=`));
   legend();
-  const three = st.view === "3d";
+  const three = st.view === "3d", ld = st.view === "load";
   document.body.classList.toggle("three", three);
   $("v3").classList.toggle("hide", !three);
-  ["ct0", "ct1"].forEach(id => $(id).classList.toggle("hide", three));
+  $("gLoad").classList.toggle("hide", !ld);
+  ["ct0", "ct1"].forEach(id => $(id).classList.toggle("hide", three || ld));
   if (three) draw3d(f);
+  if (ld) drawGameLoad();
+}
+
+// ---------- estimated player load from the box score ----------
+// Fitted on 162 player-games (8 full SportVU tracking games, Nov 2015): value = a + b * minutes.
+// [a, b, leave-one-game-out error %]. Minutes explained ~90% of every load sum; pace, shot types,
+// rebounds, steals, blocks and fouls added nothing, so only minutes are used.
+const EST = { dist: [144.4, 107.13, 11.5], steps: [94.1, 117.29, 10.5], nacc: [15.4, 4.513, 22.4], ndec: [12.7, 4.083, 22.8],
+  knee_med: [650, 431.3, 12.2], achilles: [809, 512.6, 12.4], acl: [58.7, 34.65, 13.2], ham_force: [202, 118.9, 12.7] };
+const EST_L = [["dist", "Distance", v => (v / 1000).toFixed(2) + " km"], ["steps", "Steps", v => Math.round(v)],
+  ["nacc", "Hard accels", v => Math.round(v)], ["ndec", "Hard decels", v => Math.round(v)],
+  ["knee_med", "Knee medial", v => Math.round(v / 100) / 10 + "k BW"], ["achilles", "Achilles", v => Math.round(v / 100) / 10 + "k BW"],
+  ["acl", "ACL", v => Math.round(v) + " BW"], ["ham_force", "Hamstring", v => Math.round(v) + " BW"]];
+const gl = { m: "dist" };
+function drawGameLoad() {
+  chips("gLoadM", EST_L.map(([k, l]) => [k, l]), gl, "m", drawGameLoad);
+  const [, label, fmt] = EST_L.find(e => e[0] === gl.m), [a, b, err] = EST[gl.m];
+  const kin = ["dist", "steps", "nacc", "ndec"].includes(gl.m);
+  $("iGLoad").innerHTML = `Estimated from <b>minutes played</b> only, using a model fitted on 162 players in 8 full 2015-16 games with optical tracking. ` +
+    `Typical error for one player in one game: <b>±${err}%</b> (shaded). Minutes explained about 90% of the tracked load; pace, shot types, rebounds, steals and blocks did not improve it, ` +
+    `so two players with the same minutes get the same estimate.` + (kin ? "" : ` <span class="warnbtn">⚠️</span> Joint and muscle forces are game sums per step from placeholder movement coefficients, not yet from BioScout simulations.`);
+  if (!st.box) { $("gLoadBars").innerHTML = '<div class="hint">No box score for this game yet.</div>'; return; }
+  const ix = st.box.cols.indexOf("MIN") + 3;
+  const hasShots = pid => shots.some(s => s.pid === pid), counted = pid => hasShots(pid) ? st.sel.has(pid) : roleOk(pid);
+  const rows = Object.entries(st.box.rows).map(([pid, r]) => ({ pid, t: r[0], min: parseInt(r[ix]) || 0, dnp: r[2] }))
+    .filter(r => !r.dnp && r.min >= 1 && counted(r.pid)).map(r => ({ ...r, v: a + b * r.min }));
+  if (!rows.length) { $("gLoadBars").innerHTML = '<div class="hint">Tick players to see their estimated load.</div>'; return; }
+  const mx = Math.max(...rows.map(r => r.v)) * (1 + err / 100), col = ["var(--a)", "var(--b)"];
+  $("gLoadBars").innerHTML = teamsOf().map((t, ti) => {
+    const rs = rows.filter(r => r.t === ti).sort((p, q) => q.v - p.v);
+    if (!rs.length) return "";
+    return `<h4 style="margin:10px 0 4px">${t}</h4>` + rs.map(r => {
+      const w = 100 * r.v / mx, e = w * err / 100;
+      return `<div style="display:grid;grid-template-columns:minmax(0,9.5em) 1fr 5.2em;gap:6px;align-items:center;margin:3px 0;font-size:13px">
+        <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${jersey(r.pid)}${esc((st.names[r.pid] || ["?"])[0])} <span class="hint">${r.min}'</span></span>
+        <span style="position:relative;height:12px;background:var(--panel2);border-radius:6px">
+          <span style="position:absolute;left:0;top:0;bottom:0;width:${w}%;background:${col[ti]};border-radius:6px"></span>
+          <span style="position:absolute;left:${w - e}%;width:${2 * e}%;top:-2px;bottom:-2px;background:${col[ti]};opacity:.3;border-radius:3px"></span></span>
+        <span style="text-align:right">${fmt(r.v)}</span></div>`; }).join("");
+  }).join("") + `<div class="hint" style="margin-top:8px">${label} · full game · estimate ±${err}%</div>`;
 }
 
 // ---------- compare view ----------
