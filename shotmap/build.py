@@ -33,6 +33,7 @@ if os.path.isdir(load_src):
     if os.path.isdir(os.path.join(out, "load")):
         shutil.rmtree(os.path.join(out, "load"))
     shutil.copytree(load_src, os.path.join(out, "load"))
+    shutil.copy(os.path.join(here, "tracking", "task_library.json"), os.path.join(out, "load"))   # per-task muscle contributions
 
 games, players, teams = [], {}, {}
 for season in sorted(os.listdir(os.path.join(here, "raw"))):

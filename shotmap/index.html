@@ -277,7 +277,7 @@ addEventListener("DOMContentLoaded", () => {
     <div class="row" style="justify-content:flex-end;margin-top:10px"><span class="hint">Court maps</span><button class="info" data-for="iCourt" aria-label="About the court maps">i</button></div>
     <div class="infobox hide" id="iCourt">Each player's team attacks the right-hand basket. Teams switch ends at half-time, so the second half is mirrored to match.</div>
     <div class="courts" id="lCourts" style="margin-top:6px"></div>
-    <div class="panel"><h4>Muscle contributions to joint moments</h4><div id="lMus"></div></div>
+    <div class="panel"><h4>Muscle contributions to joint moments</h4><div id="lMusT" class="row" style="margin-bottom:6px"></div><div id="lMus"></div></div>
     <div class="panel"><h4>Highest ACL-load moments</h4><table class="zones" id="lTop"></table></div>
     </div>
   </section>
@@ -950,7 +950,7 @@ async function loadLoadGame() {
     : `Loads estimated with BioScout task library v${L.library.version}.`;
   drawLoad();
 }
-function drawLoad() {
+async function drawLoad() {
   const L = ls.data; if (!L) return;
   const is3d = ls.out === "shots3d";
   $("lMain").classList.toggle("hide", is3d); $("l3d").classList.toggle("hide", !is3d);
@@ -1060,8 +1060,13 @@ function drawLoad() {
   }).join("");
   // muscle contributions
   const MOM = { hip_ext: "Hip extension", knee_ext: "Knee extension", knee_flex: "Knee flexion", ankle_pf: "Ankle plantarflexion" };
-  $("lMus").innerHTML = sides.map(({ k, p }) => `<div class="hint" style="color:${col(k)}">${esc(p.n)}</div>` + Object.entries(MOM).map(([m, lab]) => {
-    const gs = Object.entries(p.contrib[m] || {}).sort((x, y) => y[1] - x[1]);
+  // split by task: "all" = weighted by the player's steps in each task; a task = that task's share at peak moment
+  if (!ls.lib) ls.lib = await getJSON("load/task_library.json").catch(() => ({}));
+  const MC = ls.lib.moment_contributions || {}, TASKS = ["walk", "jog", "run", "sprint", "accel", "decel", "cut"];
+  ls.task = ls.task || "all";
+  chips("lMusT", [["all", "All tasks"], ...TASKS.filter(t => MC[t]).map(t => [t, t])], ls, "task", drawLoad);
+  $("lMus").innerHTML = sides.map(({ k, p }) => `<div class="hint" style="color:${col(k)}">${esc(p.n)}${ls.task !== "all" ? ` · ${(p.phases[ls.task] || 0).toLocaleString()} ${ls.task} steps` : ""}</div>` + Object.entries(MOM).map(([m, lab]) => {
+    const gs = Object.entries((ls.task === "all" ? p.contrib : MC[ls.task] || {})[m] || {}).sort((x, y) => y[1] - x[1]);
     return `<div style="font-size:13px">${lab}</div><div class="bar">${gs.map(([g, v], i) => `<span style="width:${100 * v}%;background:${MUS_COL[i]}" title="${g} ${Math.round(100 * v)}%"></span>`).join("")}</div>
       <div class="mlab" style="margin:-4px 0 8px">${gs.map(([g, v], i) => `<span><span style="color:${MUS_COL[i]}">■</span> ${g} ${Math.round(100 * v)}%</span>`).join("")}</div>`;
   }).join("")).join("<hr style='border-color:var(--line)'>");
