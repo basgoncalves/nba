@@ -164,7 +164,8 @@
         <div class="hint" id="scoreNote" style="text-align:center"></div>
       </div>
       <div class="panel hide" id="gLoad" style="grid-column:1/-1;margin-top:0">
-        <div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div id="gLoadM" class="row"></div>
+        <div class="row"><div id="gLoadAgg" class="row"></div></div>
+        <div class="row" style="justify-content:space-between;flex-wrap:nowrap;margin-top:6px"><div id="gLoadM" class="row"></div>
           <button class="info" data-for="iGLoad" aria-label="How this is estimated">i</button></div>
         <div class="infobox hide" id="iGLoad"></div>
         <div id="gLoadBars" style="margin-top:8px"></div>
@@ -667,24 +668,38 @@ function drawGame() {
 // [a, b, leave-one-game-out error %]. Minutes explained ~90% of every load sum; pace, shot types,
 // rebounds, steals, blocks and fouls added nothing, so only minutes are used.
 const EST = { dist: [144.4, 107.13, 11.5], steps: [94.1, 117.29, 10.5], nacc: [15.4, 4.513, 22.4], ndec: [12.7, 4.083, 22.8],
-  knee_med: [650, 431.3, 12.2], achilles: [809, 512.6, 12.4], acl: [58.7, 34.65, 13.2], ham_force: [202, 118.9, 12.7] };
-const EST_L = [["dist", "Distance", v => (v / 1000).toFixed(2) + " km"], ["steps", "Steps", v => Math.round(v)],
-  ["nacc", "Hard accels", v => Math.round(v)], ["ndec", "Hard decels", v => Math.round(v)],
-  ["knee_med", "Knee medial", v => Math.round(v / 100) / 10 + "k BW"], ["achilles", "Achilles", v => Math.round(v / 100) / 10 + "k BW"],
-  ["acl", "ACL", v => Math.round(v) + " BW"], ["ham_force", "Hamstring", v => Math.round(v) + " BW"]];
-const gl = { m: "dist" };
+  hip: [720, 550.0, 11.7], ham_force: [202, 118.9, 12.7], knee_med: [650, 431.3, 12.2], knee_lat: [437, 275.5, 12.5],
+  acl: [58.7, 34.65, 13.2], achilles: [809, 512.6, 12.4] };
+// whole body first, then joints and tissues from hip (top) to ankle (bottom)
+// [key, label, cumulative format, mean format]; mean = per minute (whole body) or per step (joints, peak force per step)
+const k1 = v => Math.round(v / 100) / 10 + "k";
+const EST_L = [
+  ["dist", "Distance", v => (v / 1000).toFixed(2) + " km", v => Math.round(v) + " m/min"],
+  ["steps", "Steps", v => Math.round(v), v => Math.round(v) + "/min"],
+  ["nacc", "Hard accels", v => Math.round(v), v => (v * 10).toFixed(1) + "/10 min"],
+  ["ndec", "Hard decels", v => Math.round(v), v => (v * 10).toFixed(1) + "/10 min"],
+  ["hip", "Hip", v => k1(v) + " BW", v => v.toFixed(2) + " BW"],
+  ["ham_force", "Hamstring", v => k1(v) + " BW", v => v.toFixed(2) + " BW"],
+  ["knee_med", "Knee medial", v => k1(v) + " BW", v => v.toFixed(2) + " BW"],
+  ["knee_lat", "Knee lateral", v => k1(v) + " BW", v => v.toFixed(2) + " BW"],
+  ["acl", "ACL", v => Math.round(v) + " BW", v => v.toFixed(3) + " BW"],
+  ["achilles", "Achilles", v => k1(v) + " BW", v => v.toFixed(2) + " BW"]];
+const BODY = ["dist", "steps", "nacc", "ndec"];
+const gl = { m: "dist", agg: "sum" };
 function drawGameLoad() {
   chips("gLoadM", EST_L.map(([k, l]) => [k, l]), gl, "m", drawGameLoad);
-  const [, label, fmt] = EST_L.find(e => e[0] === gl.m), [a, b, err] = EST[gl.m];
-  const kin = ["dist", "steps", "nacc", "ndec"].includes(gl.m);
+  chips("gLoadAgg", [["sum", "Cumulative"], ["mean", "Mean"]], gl, "agg", drawGameLoad);
+  const [, label, fmtSum, fmtMean] = EST_L.find(e => e[0] === gl.m), [a, b, err] = EST[gl.m];
+  const kin = BODY.includes(gl.m), mean = gl.agg === "mean", fmt = mean ? fmtMean : fmtSum;
+  const val = m => { const v = a + b * m; return !mean ? v : kin ? v / m : v / (EST.steps[0] + EST.steps[1] * m); };
   $("iGLoad").innerHTML = `Estimated from <b>minutes played</b> only, using a model fitted on 162 players in 8 full 2015-16 games with optical tracking. ` +
-    `Typical error for one player in one game: <b>±${err}%</b> (shaded). Minutes explained about 90% of the tracked load; pace, shot types, rebounds, steals and blocks did not improve it, ` +
+    `Typical error for one player in one game: <b>±${err}%</b> (shaded). <b>Cumulative</b> = game total; <b>Mean</b> = per minute played (whole body) or the average peak force per step (joints and tissues), which varies little between players because the estimate comes from minutes. Minutes explained about 90% of the tracked load; pace, shot types, rebounds, steals and blocks did not improve it, ` +
     `so two players with the same minutes get the same estimate.` + (kin ? "" : ` <span class="warnbtn">⚠️</span> Joint and muscle forces are game sums per step from placeholder movement coefficients, not yet from BioScout simulations.`);
   if (!st.box) { $("gLoadBars").innerHTML = '<div class="hint">No box score for this game yet.</div>'; return; }
   const ix = st.box.cols.indexOf("MIN") + 3;
   const hasShots = pid => shots.some(s => s.pid === pid), counted = pid => hasShots(pid) ? st.sel.has(pid) : roleOk(pid);
   const rows = Object.entries(st.box.rows).map(([pid, r]) => ({ pid, t: r[0], min: parseInt(r[ix]) || 0, dnp: r[2] }))
-    .filter(r => !r.dnp && r.min >= 1 && counted(r.pid)).map(r => ({ ...r, v: a + b * r.min }));
+    .filter(r => !r.dnp && r.min >= 1 && counted(r.pid)).map(r => ({ ...r, v: val(r.min) }));
   if (!rows.length) { $("gLoadBars").innerHTML = '<div class="hint">Tick players to see their estimated load.</div>'; return; }
   const mx = Math.max(...rows.map(r => r.v)) * (1 + err / 100), col = ["var(--a)", "var(--b)"];
   $("gLoadBars").innerHTML = teamsOf().map((t, ti) => {
@@ -698,7 +713,7 @@ function drawGameLoad() {
           <span style="position:absolute;left:0;top:0;bottom:0;width:${w}%;background:${col[ti]};border-radius:6px"></span>
           <span style="position:absolute;left:${w - e}%;width:${2 * e}%;top:-2px;bottom:-2px;background:${col[ti]};opacity:.3;border-radius:3px"></span></span>
         <span style="text-align:right">${fmt(r.v)}</span></div>`; }).join("");
-  }).join("") + `<div class="hint" style="margin-top:8px">${label} · full game · estimate ±${err}%</div>`;
+  }).join("") + `<div class="hint" style="margin-top:8px">${label} · ${mean ? (kin ? "per minute played" : "mean peak per step") : "full game total"} · estimate ±${err}%</div>`;
 }
 
 // ---------- compare view ----------
