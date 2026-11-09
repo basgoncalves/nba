@@ -682,7 +682,7 @@ function drawGame() {
   });
   const head = (o, al) => `<div style="text-align:${al}"><b>${o.t}</b> <span class="hint">${o.S.fgm}/${o.S.fga} (${pct(o.S.fgm, o.S.fga)}) · 3P ${o.S.m3}/${o.S.a3}</span></div>`;
   $("ct0").outerHTML = `<div id="ct0" class="court hcourt"><div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;margin:0 4px 4px">${head(side[0], "left")}${head(side[1], "right")}</div>
-    <svg viewBox="-472 -252 944 504"><g transform="rotate(-90)">${courtLines(true)}${side[0].g}${side[1].g}${hiMark()}</g><rect x="-150" y="-248" width="300" height="42" rx="8" fill="var(--panel)" opacity=".85"/><text x="0" y="-219" text-anchor="middle" font-size="27" fill="var(--dim)"><tspan fill="var(--made)">●</tspan> made   <tspan fill="var(--miss)">✕</tspan> missed</text></svg></div>`;
+    <svg viewBox="-472 -252 944 504"><g transform="rotate(-90)">${courtLines(true)}${side[0].g}${side[1].g}${hiMark()}</g></svg><div class="hint" style="text-align:center;margin-top:4px"><span style="color:var(--made)">●</span> made &nbsp; <span style="color:var(--miss)">✕</span> missed</div></div>`;
   $("ct1").innerHTML = ""; $("ct1").className = "hide";
   legend();
   const three = st.view === "3d", ld = st.view === "load";
