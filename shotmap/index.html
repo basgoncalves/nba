@@ -1060,7 +1060,7 @@ function drawLoad() {
 
 // ---------- 3D view (three.js, loaded on first use) ----------
 let HEIGHTS = {}, T3 = null;
-const v3 = { team: null, layers: { cols: true, arcs: true, rel: true, made: true, miss: true } };
+const v3 = { team: null, layers: { cols: false, arcs: true, rel: true, made: true, miss: true } };
 const C3 = [{ made: 0xff7a1a, miss: 0x3a8f99, css: ["#ff7a1a", "#3a8f99"] }, { made: 0xe0457b, miss: 0x8a7fd6, css: ["#e0457b", "#8a7fd6"] }];
 function loadScript(src) { return new Promise((ok, no) => { const e = document.createElement("script"); e.src = src; e.onload = ok; e.onerror = no; document.head.appendChild(e); }); }
 async function ensure3d() {
@@ -1141,7 +1141,7 @@ async function draw3d(f) {
   const teams = teamsOf();
   if (v3.team !== "both" && !teams.includes(v3.team)) v3.team = teams[0];
   chips("v3team", teams.map(t => [t, t]).concat([["both", "Both teams"]]), v3, "team", () => { renderPlayers(); draw3d(currentFiltered()); });
-  $("v3layers").innerHTML = [["cols", "Columns (makes)"], ["rel", "Release height"], ["arcs", "Shot arcs"]]
+  $("v3layers").innerHTML = [["rel", "Release height columns"], ["arcs", "Shot arcs"]]
     .map(([k, l]) => `<label><input type="checkbox" data-l="${k}" ${v3.layers[k] ? "checked" : ""}>${l}</label>`).join("");
   $("v3layers").onchange = e => { v3.layers[e.target.dataset.l] = e.target.checked; draw3d(currentFiltered()); };
   const shown = v3.team === "both" ? teams : [v3.team];
@@ -1179,8 +1179,8 @@ async function draw3d(f) {
     list.forEach((s, i) => {
       const [x, z] = P(s, ti), h = releaseFt(s); relSum += h; relN++;
       if (v3.layers.rel) {   // one thin column per shot, as tall as the estimated release height
-        const c = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, h, 6), M(s.m ? col.made : col.miss));
-        c.position.set(x + (v3.layers.cols ? 0.9 : 0), h / 2, z); G.add(c);
+        const c = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, h, 8), M(s.m ? col.made : col.miss));
+        c.position.set(x, h / 2, z); G.add(c);
       }
       if (v3.layers.arcs) {
         const rz = rimZ(ti), d = Math.hypot(x, z - rz);
