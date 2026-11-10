@@ -140,7 +140,9 @@ addEventListener("DOMContentLoaded", () => {
   table.box th, table.box td { padding:5px 7px; text-align:right; border-bottom:1px solid #222836; }
   table.box th:first-child, table.box td:first-child { text-align:left; position:sticky; left:0; background:var(--panel); }
   table.box th { color:var(--dim); font-weight:500; font-size:11px; }
-  table.box tr.p { cursor:pointer; } table.box tr.off td { opacity:.4; } table.box tr.dnp td { opacity:.35; font-style:italic; }
+  table.box tr.p { cursor:pointer; } table.box tr.off td { color:#ffffff59; } table.box tr.dnp td { color:#ffffff4d; font-style:italic; }
+  table.box tr.off td *, table.box tr.dnp td * { color:inherit; }  /* dim with colour, not opacity, so the sticky name column stays opaque */
+  table.box th:first-child, table.box td:first-child { z-index:1; box-shadow:2px 0 4px #0006; }
   table.box tr.tot td { font-weight:700; border-top:1px solid var(--line); }
   table.box .st { color:var(--accent); font-size:10px; margin-left:4px; }
   table.box caption { text-align:left; font-weight:700; padding:4px 0 6px; }
@@ -598,7 +600,7 @@ async function loadGame() {
   const g = gameById[$("game").value]; if (!g) return;
   const f = await getJSON(`raw/${g.season}/${g.id}.json`), side = [f.away, f.home];
   shots = f.shots.map(([pid, ti, q, m, v, x, y, e, di, ast]) => ({
-    v: v === 2 && Math.hypot(x, y) >= 300 ? 3 : v,   // 30 ft+ is a three (heaves are not always labelled)
+    v: v === 2 && (Math.hypot(x, y) >= 240 || (Math.abs(x) >= 220 && y <= 90)) ? 3 : v,   // beyond the arc / corner: a three (ESPN often labels it a two)
     pid, p: (f.names[pid] || ["Unknown"])[0], t: side[ti], q, m, x, y, e, c: clockOf(e), d: f.types[di] || "",
     a: ast ? 1 : 0, ap: ast ? (f.names[ast] || ["?"])[0] : "" }));
   st.tl = f.score && f.score.length > 1 ? f.score : null;

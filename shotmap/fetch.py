@@ -179,7 +179,7 @@ def download(g):
             if r["d"] not in types:
                 types.append(r["d"])
             sx, sy = round((r["x"] - rx) * 10), round((r["y"] - ry) * 10 * sign)
-            v = 3 if (sx * sx + sy * sy) ** .5 >= 300 else r["v"]   # 30 ft+ is always a three (heaves are not always labelled)
+            v = 3 if (sx * sx + sy * sy) ** .5 >= 240 or (abs(sx) >= 220 and sy <= 90) else r["v"]   # beyond the arc / corner: a three (ESPN often labels it a two)
             shots.append([r["pid"], r["t"], r["q"], r["m"], v, sx, sy, r["e"], types.index(r["d"]), r["a"]])
     used = {r[0] for r in shots} | {r[9] for r in shots if r[9]} | set(box["rows"])
     return {"v": VERSION, **g, "names": {k: v for k, v in names.items() if k in used},
