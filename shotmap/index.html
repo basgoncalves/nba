@@ -183,7 +183,7 @@ addEventListener("DOMContentLoaded", () => {
         <div class="ticks" id="ticks"></div>
         <div id="scWrap" class="hide" style="margin-top:6px;position:relative"><div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div id="scMode" class="row"></div><span class="hint" id="scLeg"></span></div>
           <div id="scChart" style="touch-action:pan-y"></div>
-          <div id="scPop" class="hide" style="position:absolute;top:calc(100% + 4px);z-index:5;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px;box-shadow:0 6px 18px #000a;max-width:260px;text-align:left"></div></div>
+</div>
         <div class="hint" id="scoreNote" style="text-align:center"></div>
       </div>
       <div class="panel hide" id="gLoad" style="grid-column:1/-1;margin-top:0">
@@ -295,6 +295,7 @@ addEventListener("DOMContentLoaded", () => {
   <footer>Shot locations from ESPN play-by-play (rounded to ~1 ft), seasons 2009–10 to today. Updated hourly.</footer>
 </div>
 <div id="tip"></div>
+<div id="shotPop" class="hide" style="position:fixed;z-index:50;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px;box-shadow:0 6px 18px #000a;width:260px;max-height:50vh;overflow:auto;text-align:left"></div>
 <script>
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -702,30 +703,42 @@ function drawScore() {
   g += `<line x1="${X(st.t)}" x2="${X(st.t)}" y1="0" y2="${H}" stroke="#fff" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`;
   $("scChart").innerHTML = g;
 }
-// balloon with the shot nearest the tapped time, and a YouTube search for the game's highlights
+// ---------- shot balloon (score chart, 2D court, 3D view): details, a chooser when several shots share the spot, YouTube search ----------
+const qLabel = q => q > 4 ? "OT" + (q - 4) : "Q" + q;
+function shotPop(list, cx, cy, pick = 0) {
+  const pop = $("shotPop"); if (!list.length) { pop.classList.add("hide"); return; }
+  list = [...list].sort((a, b) => a.e - b.e);
+  const s0 = list[Math.min(pick, list.length - 1)], [ta, th] = teamsOf(), g = st.g || {};
+  const T = (st.tl || []).filter(r => r[0] <= s0.e).pop() || [0, 0, 0];
+  const day = g.date ? new Date(g.date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "";
+  const q = encodeURIComponent(`${ta} vs ${th} highlights ${day} ${s0.p.replace(/^.\. /, "")}`);
+  const res = s => s.m ? '<span style="color:var(--made)">made</span>' : '<span style="color:var(--miss)">missed</span>';
+  pop.innerHTML = (list.length > 1 ? `<div class="hint" style="margin-bottom:4px">${list.length} shots from this spot</div>` +
+      list.map((s, i) => `<button class="chip${i === pick ? " on" : ""}" data-pk="${i}" style="display:block;width:100%;text-align:left;margin:2px 0;font-size:12px">${qLabel(s.q)} ${s.c} · ${esc(s.p)} · ${res(s)}</button>`).join("") +
+      `<hr style="border:0;border-top:1px solid var(--line);margin:6px 0">` : "") +
+    `<div class="hint">${qLabel(s0.q)} ${s0.c} · ${ta} ${T[1]}–${T[2]} ${th}</div>
+    <div style="margin:3px 0"><b>${esc(s0.p)}</b> (${s0.t}) · ${s0.v}PT ${esc(s0.d)} · ${Math.round(Math.hypot(s0.x, s0.y) / 10)} ft · ${res(s0)}${s0.ap ? ` · assist ${esc(s0.ap)}` : ""}</div>
+    <a href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener" style="color:var(--accent)">▶ Find the highlights on YouTube</a>`;
+  pop.onclick = e => { const b = e.target.closest("[data-pk]"); if (b) { e.stopPropagation(); shotPop(list, cx, cy, +b.dataset.pk); } };
+  pop.style.left = Math.max(8, Math.min(innerWidth - 268, cx - 130)) + "px";
+  pop.classList.remove("hide");
+  const h = pop.offsetHeight; pop.style.top = (cy + 14 + h > innerHeight ? Math.max(8, cy - 14 - h) : cy + 14) + "px";
+  st.hi = s0; drawGame();
+}
+document.addEventListener("pointerdown", e => { if (!e.target.closest("#shotPop,#scChart,[data-k],#v3box canvas")) $("shotPop").classList.add("hide"); });
+// score chart: the shot nearest the tapped time (moves the clock there)
 function playPop(t, e) {
   const near = shots.filter(s => Math.abs(s.e - t) <= 30).sort((a, b) => Math.abs(a.e - t) - Math.abs(b.e - t))[0];
-  const pop = $("scPop"); if (!near) { pop.classList.add("hide"); return; }
-  st.hi = near; setTime(near.e);
-  const T = st.tl.filter(r => r[0] <= near.e).pop() || [0, 0, 0], [ta, th] = teamsOf(), g = st.g || {};
-  const day = g.date ? new Date(g.date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "";
-  const q = encodeURIComponent(`${ta} vs ${th} highlights ${day} ${near.p.replace(/^.\. /, "")}`);
-  pop.innerHTML = `<div class="hint">${near.q > 4 ? "OT" + (near.q - 4) : "Q" + near.q} ${near.c} · ${ta} ${T[1]}–${T[2]} ${th}</div>
-    <div style="margin:3px 0"><b>${esc(near.p)}</b> (${near.t}) · ${near.v}PT ${esc(near.d)} · ${Math.round(Math.hypot(near.x, near.y) / 10)} ft ·
-    ${near.m ? '<span style="color:var(--made)">made</span>' : '<span style="color:var(--miss)">missed</span>'}${near.ap ? ` · assist ${esc(near.ap)}` : ""}</div>
-    <a href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener" style="color:var(--accent)">▶ Find the highlights on YouTube</a>`;
-  const r = $("scWrap").getBoundingClientRect(), w = 260;
-  pop.style.left = Math.max(0, Math.min(r.width - w, e.clientX - r.left - w / 2)) + "px";
-  pop.classList.remove("hide");
+  if (!near) { $("shotPop").classList.add("hide"); return; }
+  st.t = near.e; $("time").value = st.t; shotPop([near], e.clientX, e.clientY);
 }
 function initScore() {
   const el = $("scChart"), at = e => { const r = el.getBoundingClientRect(); return Math.round(st.max * Math.min(1, Math.max(0, (e.clientX - r.left) / r.width))); };
   let down = false, x0 = 0;
-  el.onpointerdown = e => { down = true; x0 = e.clientX; stopPlay(); st.hi = null; $("scPop").classList.add("hide"); setTime(at(e)); };
+  el.onpointerdown = e => { down = true; x0 = e.clientX; stopPlay(); st.hi = null; $("shotPop").classList.add("hide"); setTime(at(e)); };
   el.onpointermove = e => { if (down) setTime(at(e)); };
   el.onpointercancel = () => { down = false; };
   el.onpointerup = e => { down = false; if (Math.abs(e.clientX - x0) < 6) playPop(at(e), e); };   // a tap (not a drag): show that play
-  document.addEventListener("pointerdown", e => { if (!e.target.closest("#scPop,#scChart")) $("scPop").classList.add("hide"); });
 }
 
 function drawGame() {
@@ -1191,6 +1204,16 @@ function init3d() {
   T3 = { renderer, scene, cam, ctl, dyn, court, full: null };
   new ResizeObserver(() => { const w = box.clientWidth, h = box.clientHeight; renderer.setSize(w, h); cam.aspect = w / h; cam.updateProjectionMatrix(); }).observe(box);
   (function loop() { requestAnimationFrame(loop); ctl.update(); renderer.render(scene, cam); })();
+  // tap (not drag) on a column / hexagon: balloon with the shots there
+  const ray = new THREE.Raycaster(); let p0 = null;
+  renderer.domElement.addEventListener("pointerdown", e => { p0 = [e.clientX, e.clientY]; });
+  renderer.domElement.addEventListener("pointerup", e => {
+    if (!p0 || Math.hypot(e.clientX - p0[0], e.clientY - p0[1]) > 6) return;
+    const r = renderer.domElement.getBoundingClientRect();
+    ray.setFromCamera(new THREE.Vector2((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1), cam);
+    const hit = ray.intersectObjects(dyn.children, false).find(h => h.object.userData.shots);
+    if (hit) shotPop(hit.object.userData.shots, e.clientX, e.clientY); else $("shotPop").classList.add("hide");
+  });
 }
 // court coordinates: x = sideline to sideline (ft), z = -(distance toward half court); basket at origin, y up
 function buildCourt(full) {
@@ -1262,11 +1285,11 @@ async function draw3d(f) {
       const R = 1.6, w = Math.sqrt(3) * R, bins = {};
       list.forEach(s => {
         const [x, z] = P(s, ti), r = Math.round(z / (1.5 * R)), off = (r & 1) ? w / 2 : 0, c = Math.round((x - off) / w), k = r + "," + c;
-        (bins[k] = bins[k] || { x: c * w + off, z: r * 1.5 * R, m: 0, n: 0 }).n++; if (s.m) bins[k].m++;
+        (bins[k] = bins[k] || { x: c * w + off, z: r * 1.5 * R, m: 0, n: 0, s: [] }).n++; if (s.m) bins[k].m++; bins[k].s.push(s);
       });
       Object.values(bins).forEach(b => {
-        if (b.n > b.m) { const m = new THREE.Mesh(new THREE.CylinderGeometry(R * .82, R * .82, 0.25, 6), M(col.miss)); m.position.set(b.x, 0.13, b.z); G.add(m); }
-        if (b.m) { const h = 1.6 * b.m, m = new THREE.Mesh(new THREE.CylinderGeometry(R * .7, R * .7, h, 6), M(col.made)); m.position.set(b.x, h / 2 + 0.25, b.z); G.add(m); }
+        if (b.n > b.m) { const m = new THREE.Mesh(new THREE.CylinderGeometry(R * .82, R * .82, 0.25, 6), M(col.miss)); m.position.set(b.x, 0.13, b.z); m.userData.shots = b.s; G.add(m); }
+        if (b.m) { const h = 1.6 * b.m, m = new THREE.Mesh(new THREE.CylinderGeometry(R * .7, R * .7, h, 6), M(col.made)); m.position.set(b.x, h / 2 + 0.25, b.z); m.userData.shots = b.s; G.add(m); }
       });
     }
     list.forEach((s, i) => {
@@ -1554,6 +1577,13 @@ function drawZoom() {
   }).join("") + `<div class="mlab" style="margin-top:4px">${["walk", "jog", "run", "sprint", "accel", "decel", "cut"].map((h, i) => `<span><span style="color:${PC[i]}">■</span> ${h}</span>`).join("")}</div>`;
 }
 
+document.addEventListener("click", e => {
+  const t = e.target.dataset || {};
+  if (t.k && t.k.startsWith("g:") && t.i !== undefined) {
+    const L = window._g[t.k.slice(2)] || [], s0 = L[t.i]; if (!s0) return;
+    shotPop(L.filter(s => Math.hypot(s.x - s0.x, s.y - s0.y) <= 15), e.clientX, e.clientY); return;
+  }
+});
 document.addEventListener("click", e => { const b = e.target.closest("button.info"); if (b) $(b.dataset.for).classList.toggle("hide"); });
 
 // ---------- tooltip ----------
