@@ -632,20 +632,22 @@ function boxScore() {
     const counted = pid => hasShots(pid) ? st.sel.has(pid) : roleOk(pid);   // totals = ticked players
     const rows = Object.entries(B.rows).filter(([, r]) => r[0] === ti)
       .sort((a, b) => (b[1][1] - a[1][1]) || (a[1][2] - b[1][2]) || ((+b[1][ix("MIN")] || 0) - (+a[1][ix("MIN")] || 0)));
-    const tot = cols.map(c => {
+    const sum = use => cols.map(c => {
       if (c === "+/-") return "";
       let a = 0, b = 0, pair = false;
-      rows.forEach(([pid, r]) => { if (r[2] || !counted(pid)) return; const v = r[ix(c)], sp = split(v); if (sp) { pair = true; a += sp[0] || 0; b += sp[1] || 0; } else a += +v || 0; });
+      rows.forEach(([pid, r]) => { if (r[2] || !use(pid)) return; const v = r[ix(c)], sp = split(v); if (sp) { pair = true; a += sp[0] || 0; b += sp[1] || 0; } else a += +v || 0; });
       return pair ? `${a}-${b}` + (["FG", "3PT", "FT"].includes(c) && b ? ` <span class="hint">${Math.round(100 * a / b)}%</span>` : "") : a;
     });
+    const tot = sum(counted), team = sum(() => true);
     const all = rows.every(([pid, r]) => r[2] || counted(pid));
-    const label = all ? "" : st.role === "start" ? " · totals for starters" : st.role === "bench" ? " · totals for bench" : " · totals for ticked players";
+    const label = "", sub = st.role === "start" ? "Starters" : st.role === "bench" ? "Bench" : "Ticked";
     return `<div class="boxwrap"><table class="box"><caption>${t}<span class="hint" style="font-weight:400">${label}</span></caption><tr><th>Player</th>${cols.map(c => `<th>${c}</th>`).join("")}</tr>` +
       rows.map(([pid, r]) => {
         const nm = (st.names[pid] || ["?"])[0];
         if (r[2]) return `<tr class="dnp"><td>${esc(nm)}</td><td colspan="${cols.length}" style="text-align:left">did not play</td></tr>`;
         return `<tr class="p ${counted(pid) ? "" : "off"}" data-pid="${pid}"><td>${jersey(pid)} ${esc(nm)}${r[1] ? '<span class="st">S</span>' : ""}</td>${cols.map(c => `<td>${esc(r[ix(c)] ?? "")}</td>`).join("")}</tr>`;
-      }).join("") + `<tr class="tot"><td>Total</td>${tot.map(v => `<td>${v}</td>`).join("")}</tr></table></div>`;
+      }).join("") + (all ? "" : `<tr class="tot"><td>${sub}</td>${tot.map(v => `<td>${v}</td>`).join("")}</tr>`) +
+        `<tr class="tot"${all ? "" : ' style="border-top:0"'}><td>Team</td>${team.map(v => `<td>${v}</td>`).join("")}</tr></table></div>`;
   }).join("");
   $("box").onclick = e => {
     const tr = e.target.closest("tr[data-pid]"); if (!tr) return;
