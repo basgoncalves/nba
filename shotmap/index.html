@@ -84,7 +84,7 @@ addEventListener("DOMContentLoaded", () => {
     .players label input { width:13px; height:13px; margin:0; flex:none; }
     .players h4 { margin:4px 0 0; font-size:12px; }
     #v3 { padding:8px; } #v3layers label { font-size:12px !important; }
-    #v3box { height:48vh !important; margin-top:4px !important; }
+    #v3box { margin-top:4px !important; }
     body.three #cmpBtn, body.three #cmpHint, body.three #all, body.three #none { display:none; }
     body.three .mid { padding:4px 10px; gap:2px; } body.three .ticks { display:none; }
     .court { padding:6px; }
@@ -197,7 +197,7 @@ addEventListener("DOMContentLoaded", () => {
         <div class="row" id="v3team"></div>
         <div class="v3line" id="v3layers"></div>
         <div class="v3line" id="v3legend"></div>
-        <div id="v3box" style="position:relative;height:min(70vh,620px);margin-top:6px;border-radius:10px;overflow:hidden;background:#120d0a"></div>
+        <div id="v3box" style="position:relative;height:min(64vw,66vh,600px);margin-top:6px;border-radius:10px;overflow:hidden;background:#120d0a"></div>
         <div class="row" style="justify-content:space-between;margin-top:6px;flex-wrap:nowrap"><span class="hint">drag to rotate · pinch to zoom · two fingers to move</span>
           <button class="info warnbtn" data-for="v3note" aria-label="About release heights" title="Estimates">⚠️</button></div>
         <div class="infobox hide" id="v3note"></div>
@@ -1207,7 +1207,7 @@ function init3d() {
   const dyn = new THREE.Group(); scene.add(dyn);
   const court = new THREE.Group(); scene.add(court);
   T3 = { renderer, scene, cam, ctl, dyn, court, full: null };
-  new ResizeObserver(() => { const w = box.clientWidth, h = box.clientHeight; renderer.setSize(w, h); cam.aspect = w / h; cam.updateProjectionMatrix(); }).observe(box);
+  new ResizeObserver(() => { const w = box.clientWidth, h = box.clientHeight; if (!w || !h) return; renderer.setSize(w, h); cam.aspect = w / h; cam.updateProjectionMatrix(); if (T3.full !== null) fit3d(); }).observe(box);
   (function loop() { requestAnimationFrame(loop); ctl.update(); renderer.render(scene, cam); })();
   // tap (not drag) on a column / hexagon: balloon with the shots there
   const ray = new THREE.Raycaster(); let p0 = null;
@@ -1252,9 +1252,21 @@ function buildCourt(full) {
   if (full) { line([[-25, base - 47], [25, base - 47]]); line(arc(0, base - 47, 6, 0, 2 * Math.PI)); half(-1, base - 94 + base); }
   else line(arc(0, base - 47, 6, Math.PI, 2 * Math.PI));
   T3.full = full;
-  const far = T3.cam.aspect < 1 ? 1.8 : 1, tz = full ? -36 : -14;
-  T3.ctl.target.set(0, 2, tz);
-  T3.cam.position.set(30 * far, (full ? 44 : 34) * far, tz + 44 * far);
+  fit3d();
+}
+// frame the court: same viewing direction, the closest distance at which the floor (and arcs) fit, then centre it
+function fit3d() {
+  const full = T3.full, len = full ? 94 : 47, base = 4.75, tz = full ? -36 : -14, cam = T3.cam;
+  const dir = new THREE.Vector3(30, full ? 44 : 34, 44).normalize(), tgt = new THREE.Vector3(0, 2, tz);
+  const pts = []; [-25, 25].forEach(x => [base, base - len].forEach(z => [0, 13].forEach(y => pts.push(new THREE.Vector3(x, y, z)))));
+  const box = d => { cam.position.copy(tgt).addScaledVector(dir, d); cam.lookAt(tgt); cam.updateMatrixWorld();
+    const P = pts.map(p => p.clone().project(cam)); return [Math.min(...P.map(p => p.x)), Math.max(...P.map(p => p.x)), Math.min(...P.map(p => p.y)), Math.max(...P.map(p => p.y))]; };
+  let lo = 10, hi = 400;
+  for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2, b = box(m); (b[0] < -0.94 || b[1] > 0.94 || b[2] < -0.94 || b[3] > 0.94) ? lo = m : hi = m; }
+  const b = box(hi), right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0), up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
+  const h = 2 * hi * Math.tan(cam.fov * Math.PI / 360), w = h * cam.aspect;   // shift so the court sits in the middle
+  const shift = right.multiplyScalar((b[0] + b[1]) / 2 * w / 2 * 0.9).add(up.multiplyScalar((b[2] + b[3]) / 2 * h / 2 * 0.9));
+  tgt.add(shift); cam.position.add(shift); T3.ctl.target.copy(tgt); cam.lookAt(tgt);
 }
 async function draw3d(f) {
   if (!(await ensure3d())) return;
