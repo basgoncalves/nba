@@ -62,7 +62,7 @@ addEventListener("DOMContentLoaded", () => {
   .ticks { display:flex; justify-content:space-between; color:var(--dim); font-size:11px; padding:0 54px 0 54px; }
   #courts { grid-template-columns:1fr 1fr; }
   @media (max-width:640px) { #courts { grid-template-columns:1fr; } }
-  @media (max-width:640px) { .mid { order:0; position:sticky; top:0; z-index:3; box-shadow:0 6px 16px #000a; } }
+  /* score, slider and timeline always come first and scroll with the page (no sticky panel covering the courts) */
   .court { background:var(--panel); border-radius:12px; padding:10px; }
   .court { position:relative; }
   .court h3 { position:absolute; left:0; right:0; top:12px; margin:0; text-align:center; font-size:16px; pointer-events:none; z-index:1; }
