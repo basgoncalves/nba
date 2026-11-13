@@ -596,7 +596,10 @@ function initClock() {
   stopPlay();
 }
 function stopPlay() { if (st.timer) st.hi = null; clearInterval(st.timer); st.timer = null; $("play").textContent = "▶"; }
-function setTime(t) { st.t = Math.max(0, Math.min(st.max, t)); $("time").value = st.t; drawGame(); }
+// redraw at most once per frame while the slider / chart is dragged, so input never queues up behind a slow redraw
+let drawPending = false;
+function setTime(t) { st.t = Math.max(0, Math.min(st.max, t)); $("time").value = st.t;
+  if (!drawPending) { drawPending = true; requestAnimationFrame(() => { drawPending = false; drawGame(); }); } }
 
 // ---------- game view ----------
 function fillGames() {
@@ -768,7 +771,9 @@ function drawGame() {
   $("v3").classList.toggle("hide", !three);
   $("gLoad").classList.toggle("hide", !ld);
   $("ct0").classList.toggle("hide", three || ld);
-  if (three) draw3d(f);
+  if (three) {   // rebuilding the 3D scene is slow: while scrubbing, rebuild only when the input pauses
+    clearTimeout(st.t3); st.t3 = setTimeout(() => draw3d(f), st.timer ? 0 : 120);
+  }
   if (ld) drawGameLoad();
 }
 
