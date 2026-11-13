@@ -181,6 +181,9 @@ addEventListener("DOMContentLoaded", () => {
         <div class="hint" id="hiShot" style="text-align:center;min-height:1.3em"></div>
         <div class="bar"><button id="play" aria-label="Play">▶</button><button id="prevShot" aria-label="Previous shot">‹</button><button id="nextShot" aria-label="Next shot">›</button><input type="range" id="time" min="0" max="2880" step="5" value="2880" aria-label="Game time"><button id="toEnd">End</button></div>
         <div class="ticks" id="ticks"></div>
+        <div id="scWrap" class="hide" style="margin-top:6px;position:relative"><div class="row" style="justify-content:space-between;flex-wrap:nowrap"><div id="scMode" class="row"></div><span class="hint" id="scLeg"></span></div>
+          <div id="scChart" style="touch-action:pan-y"></div>
+          <div id="scPop" class="hide" style="position:absolute;top:calc(100% + 4px);z-index:5;background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:13px;box-shadow:0 6px 18px #000a;max-width:260px;text-align:left"></div></div>
         <div class="hint" id="scoreNote" style="text-align:center"></div>
       </div>
       <div class="panel hide" id="gLoad" style="grid-column:1/-1;margin-top:0">
@@ -253,6 +256,8 @@ addEventListener("DOMContentLoaded", () => {
     <div class="panel"><div class="row" style="justify-content:space-between;flex-wrap:nowrap"><h4 style="margin:0" id="laTitle"></h4>
       <button class="info" data-for="iLand" aria-label="About the landscape">i</button></div>
       <div class="infobox hide" id="iLand"></div>
+      <div class="row" id="laTimeRow" style="flex-wrap:nowrap;margin-top:6px"><button id="laPlay" class="chip" aria-label="Play the season">▶</button>
+        <input type="range" id="laDate" min="0" max="0" value="0" style="flex:1"><span class="hint" id="laDateLbl" style="min-width:5.5em;text-align:right"></span></div>
       <div id="laPlot" style="margin-top:6px"></div></div>
   </section>
 
@@ -488,6 +493,7 @@ async function init() {
     const n = Math.max(0, Math.min(L.length - 1, k + d));
     st.hi = L[n]; setTime(st.hi.e);
   };
+  initScore();
   $("prevShot").onclick = () => stepShot(-1);
   $("nextShot").onclick = () => stepShot(1);
   $("play").onclick = () => {
@@ -603,7 +609,7 @@ async function loadGame() {
     v: v === 2 && (Math.hypot(x, y) >= 240 || (Math.abs(x) >= 220 && y <= 90)) ? 3 : v,   // beyond the arc / corner: a three (ESPN often labels it a two)
     pid, p: (f.names[pid] || ["Unknown"])[0], t: side[ti], q, m, x, y, e, c: clockOf(e), d: f.types[di] || "",
     a: ast ? 1 : 0, ap: ast ? (f.names[ast] || ["?"])[0] : "" }));
-  st.tl = f.score && f.score.length > 1 ? f.score : null;
+  st.tl = f.score && f.score.length > 1 ? f.score : null; st.g = g;
   st.box = f.box && f.box.cols && f.box.cols.length ? f.box : null; st.names = f.names || {};
   st.role = "all"; roleChips();
   initClock();
@@ -668,7 +674,62 @@ function renderPlayers() {
   }).join("");
   $("players").onchange = e => { e.target.checked ? st.sel.add(e.target.value) : st.sel.delete(e.target.value); drawGame(); };
 }
+// ---------- score timeline under the slider: both scores, or the lead ----------
+const sc = { mode: "total" };
+function drawScore() {
+  const T = st.tl; $("scWrap").classList.toggle("hide", !T);
+  if (!T) return;
+  chips("scMode", [["total", "Total"], ["diff", "Difference"]], sc, "mode", drawScore);
+  const [ta, th] = teamsOf(), W = 1000, H = 130, pt = 8, pb = 14, X = t => W * t / st.max;
+  const pts = T.concat([[st.max, T[T.length - 1][1], T[T.length - 1][2]]]);
+  const step = f => pts.map((r, i) => (i ? `H${X(r[0]).toFixed(1)}V` : `M${X(r[0]).toFixed(1)} `) + f(r).toFixed(1)).join("");
+  let g = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:90px;display:block;cursor:pointer">`;
+  for (let q = 1; q < st.max / 720; q++) g += `<line x1="${X(q * 720)}" x2="${X(q * 720)}" y1="0" y2="${H}" stroke="var(--line)" stroke-dasharray="3 4" vector-effect="non-scaling-stroke"/>`;
+  if (sc.mode === "total") {
+    const top = Math.max(...pts.map(r => Math.max(r[1], r[2]))) || 1, Y = v => H - pb - (H - pt - pb) * v / top;
+    g += `<path d="${step(r => Y(r[1]))}" fill="none" stroke="var(--a)" stroke-width="2.5" vector-effect="non-scaling-stroke"/>`;
+    g += `<path d="${step(r => Y(r[2]))}" fill="none" stroke="var(--b)" stroke-width="2.5" vector-effect="non-scaling-stroke"/>`;
+    $("scLeg").innerHTML = `<span style="color:var(--a)">━</span> ${ta} <span style="color:var(--b)">━</span> ${th}`;
+  } else {
+    const m = Math.max(5, ...pts.map(r => Math.abs(r[2] - r[1]))), Y = v => H / 2 - (H / 2 - pt) * v / m;   // up = home leads
+    const d = step(r => Y(r[2] - r[1])), close = `V${H / 2}H0Z`;
+    g += `<clipPath id="scUp"><rect x="0" y="0" width="${W}" height="${H / 2}"/></clipPath><clipPath id="scDn"><rect x="0" y="${H / 2}" width="${W}" height="${H / 2}"/></clipPath>`;
+    g += `<path d="${d}${close}" fill="var(--b)" opacity=".35" clip-path="url(#scUp)"/><path d="${d}${close}" fill="var(--a)" opacity=".35" clip-path="url(#scDn)"/>`;
+    g += `<line x1="0" x2="${W}" y1="${H / 2}" y2="${H / 2}" stroke="var(--line)" vector-effect="non-scaling-stroke"/>`;
+    g += `<path d="${d}" fill="none" stroke="var(--text)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+    $("scLeg").innerHTML = `▲ ${th} leads · ▼ ${ta} leads · max ${m}`;
+  }
+  g += `<line x1="${X(st.t)}" x2="${X(st.t)}" y1="0" y2="${H}" stroke="#fff" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`;
+  $("scChart").innerHTML = g;
+}
+// balloon with the shot nearest the tapped time, and a YouTube search for the game's highlights
+function playPop(t, e) {
+  const near = shots.filter(s => Math.abs(s.e - t) <= 30).sort((a, b) => Math.abs(a.e - t) - Math.abs(b.e - t))[0];
+  const pop = $("scPop"); if (!near) { pop.classList.add("hide"); return; }
+  st.hi = near; setTime(near.e);
+  const T = st.tl.filter(r => r[0] <= near.e).pop() || [0, 0, 0], [ta, th] = teamsOf(), g = st.g || {};
+  const day = g.date ? new Date(g.date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "";
+  const q = encodeURIComponent(`${ta} vs ${th} highlights ${day} ${near.p.replace(/^.\. /, "")}`);
+  pop.innerHTML = `<div class="hint">${near.q > 4 ? "OT" + (near.q - 4) : "Q" + near.q} ${near.c} · ${ta} ${T[1]}–${T[2]} ${th}</div>
+    <div style="margin:3px 0"><b>${esc(near.p)}</b> (${near.t}) · ${near.v}PT ${esc(near.d)} · ${Math.round(Math.hypot(near.x, near.y) / 10)} ft ·
+    ${near.m ? '<span style="color:var(--made)">made</span>' : '<span style="color:var(--miss)">missed</span>'}${near.ap ? ` · assist ${esc(near.ap)}` : ""}</div>
+    <a href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener" style="color:var(--accent)">▶ Find the highlights on YouTube</a>`;
+  const r = $("scWrap").getBoundingClientRect(), w = 260;
+  pop.style.left = Math.max(0, Math.min(r.width - w, e.clientX - r.left - w / 2)) + "px";
+  pop.classList.remove("hide");
+}
+function initScore() {
+  const el = $("scChart"), at = e => { const r = el.getBoundingClientRect(); return Math.round(st.max * Math.min(1, Math.max(0, (e.clientX - r.left) / r.width))); };
+  let down = false, x0 = 0;
+  el.onpointerdown = e => { down = true; x0 = e.clientX; stopPlay(); st.hi = null; $("scPop").classList.add("hide"); setTime(at(e)); };
+  el.onpointermove = e => { if (down) setTime(at(e)); };
+  el.onpointercancel = () => { down = false; };
+  el.onpointerup = e => { down = false; if (Math.abs(e.clientX - x0) < 6) playPop(at(e), e); };   // a tap (not a drag): show that play
+  document.addEventListener("pointerdown", e => { if (!e.target.closest("#scPop,#scChart")) $("scPop").classList.add("hide"); });
+}
+
 function drawGame() {
+  drawScore();
   boxScore();
   const ok = st.sel.size === 2;
   $("cmpBtn").disabled = !ok;
@@ -1285,16 +1346,24 @@ async function initLand() {
   ["laSeason", "laN", "laMin", "laX", "laY"].forEach(id => $(id).onchange = () => { if (id === "laX") la.x = $(id).value; if (id === "laY") la.y = $(id).value; drawLand(); });
   $("laFind").onchange = () => { const v = $("laFind").value.trim(); const m = la.pts.find(p => p.n.toLowerCase() === v.toLowerCase()) || la.pts.find(p => p.n.toLowerCase().includes(v.toLowerCase()));
     if (m) la.hi.add(m.id); $("laFind").value = ""; drawLand(); };
+  $("laDate").oninput = () => { la.di = +$("laDate").value; drawLand(); };
+  $("laPlay").onclick = () => {
+    if (la.timer) { clearInterval(la.timer); la.timer = null; $("laPlay").textContent = "▶"; return; }
+    if (la.di === null || la.di >= la.dates.length - 1) la.di = 0;
+    $("laPlay").textContent = "❚❚";
+    la.timer = setInterval(async () => { if (la.busy) return; la.busy = true; la.di++; await drawLand(); la.busy = false;
+      if (la.di >= la.dates.length - 1) { clearInterval(la.timer); la.timer = null; $("laPlay").textContent = "▶"; } }, 300);
+  };
   $("laHi").onclick = e => { const id = e.target.closest("[data-id]")?.dataset.id; if (id) { la.hi.delete(id); drawLand(); } };
 }
 async function laGet(path) { return la.cache[path] || (la.cache[path] = await getJSON(path)); }
 const laRow = (cols, r) => Object.fromEntries(cols.map((c, i) => [c, r[i]]));
-async function laEntities() {
-  const season = $("laSeason").value, N = +$("laN").value;
+async function laEntities(upto) {
+  const season = $("laSeason").value, N = +$("laN").value, ok = r => !upto || r.date <= upto;
   const add = (A, R, cols) => { cols.forEach(c => { if (typeof R[c] === "number") A[c] = (A[c] || 0) + R[c]; }); A.n = (A.n || 0) + 1; return A; };
   if (la.mode === "teams") {
     const d = await laGet("data/land/teams.json"), rows = d.rows.map(r => laRow(d.cols, r));
-    let use = la.period === "career" ? rows : rows.filter(r => r.season === season);
+    let use = la.period === "career" ? rows : rows.filter(r => r.season === season && ok(r));
     if (la.period === "last") { const by = {}; use.forEach(r => (by[r.team] = by[r.team] || []).push(r)); use = Object.values(by).flatMap(v => v.slice(-N)); }
     const agg = {}; use.forEach(r => add(agg[r.team] = agg[r.team] || { id: r.team, n0: r.team }, r, d.cols));
     return Object.values(agg).map(A => ({ ...A, label: A.id }));
@@ -1303,7 +1372,7 @@ async function laEntities() {
     const d = await laGet("data/land/career.json");
     return Object.entries(d.players).map(([id, r]) => ({ id, label: r[0], team: r[1], ...Object.fromEntries(d.cols.map((c, k) => [c, r[4 + k]])), n: r[2] }));
   }
-  const d = await laGet(`data/land/players_${season}.json`), rows = d.rows.map(r => laRow(d.cols, r));
+  const d = await laGet(`data/land/players_${season}.json`), rows = d.rows.map(r => laRow(d.cols, r)).filter(ok);
   const by = {}; rows.forEach(r => (by[r.pid] = by[r.pid] || []).push(r));
   return Object.entries(by).map(([id, rs]) => { const use = la.period === "last" ? rs.slice(-N) : rs, A = { id, label: d.names[id][0], team: d.names[id][1] };
     use.forEach(r => add(A, r, d.cols)); A.ngames = A.n; return A; });
@@ -1315,11 +1384,27 @@ async function drawLand() {
   $("laX").innerHTML = opts; $("laY").innerHTML = opts; $("laX").value = la.x; $("laY").value = la.y;
   $("laSeason").classList.toggle("hide", la.period === "career"); $("laN").classList.toggle("hide", la.period !== "last");
   $("laPlayerRow").classList.toggle("hide", la.mode !== "players"); $("laHi").classList.toggle("hide", la.mode !== "players");
-  let ents = await laEntities();
+  // season slider: the landscape as it stood on a given date (season to date, or the last N games up to that date)
+  const slide = la.period !== "career";
+  $("laTimeRow").classList.toggle("hide", !slide);
+  let upto = null;
+  if (slide) {
+    const T = await laGet("data/land/teams.json"), si = T.cols.indexOf("season"), di = T.cols.indexOf("date");
+    const dates = [...new Set(T.rows.filter(r => r[si] === $("laSeason").value).map(r => r[di]))].sort();
+    if (la.dkey !== $("laSeason").value) { la.dkey = $("laSeason").value; la.di = null; }
+    const sl = $("laDate"); sl.max = Math.max(0, dates.length - 1);
+    const i = la.di === null ? dates.length - 1 : Math.min(la.di, dates.length - 1); sl.value = i;
+    upto = la.di === null ? null : dates[i];
+    $("laDateLbl").textContent = dates.length ? new Date(dates[i] + "T12:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "";
+    la.dates = dates;
+  }
+  const scaleEnts = upto ? await laEntities(null) : null;   // axes stay fixed at the end-of-period spread while sliding
+  let ents = await laEntities(upto);
   if (la.mode === "players") {
     const minG = la.period === "career" ? 20 : la.period === "last" ? Math.min(+$("laN").value, 3) : 5;
     ents = ents.filter(e => e.n >= minG && e.min / e.n >= +$("laMin").value);
   }
+  const keep = es => la.mode !== "players" ? es : es.filter(e => e.n >= (la.period === "career" ? 20 : la.period === "last" ? Math.min(+$("laN").value, 3) : 5) && e.min / e.n >= +$("laMin").value);
   const [mx, my] = [M[la.x], M[la.y]];
   const pts = ents.map(e => ({ id: e.id, n: e.label, t: e.team, x: mx[1](e), y: my[1](e), g: e.n })).filter(p => isFinite(p.x) && isFinite(p.y));
   la.pts = pts;
@@ -1332,9 +1417,11 @@ async function drawLand() {
   if (pts.length < 2) { $("laPlot").innerHTML = '<div class="hint">Not enough box-score data for this selection yet.</div>'; return; }
   // plot: oriented so good = up/right; centred on the mean
   const W = 640, H = 640, pad = 46, mean = a => a.reduce((s, v) => s + v, 0) / a.length;
-  const xs = pts.map(p => p.x * mx[2]), ys = pts.map(p => p.y * my[2]), cx = mean(xs), cy = mean(ys);
+  const sp = scaleEnts ? keep(scaleEnts).map(e => ({ x: mx[1](e), y: my[1](e) })).filter(p => isFinite(p.x) && isFinite(p.y)) : pts;
+  const xs = (sp.length > 1 ? sp : pts).map(p => p.x * mx[2]), ys = (sp.length > 1 ? sp : pts).map(p => p.y * my[2]), cx = mean(xs), cy = mean(ys);
   const rx = Math.max(...xs.map(v => Math.abs(v - cx))) * 1.12 || 1, ry = Math.max(...ys.map(v => Math.abs(v - cy))) * 1.12 || 1;
-  const X = v => W / 2 + (v - cx) / rx * (W / 2 - pad), Y = v => H / 2 - (v - cy) / ry * (H / 2 - pad);
+  const cl = (v, a, b) => Math.max(a, Math.min(b, v));   // early-season outliers stay on the plot edge
+  const X = v => cl(W / 2 + (v - cx) / rx * (W / 2 - pad), pad / 2, W - pad / 2), Y = v => cl(H / 2 - (v - cy) / ry * (H / 2 - pad), pad / 2, H - pad / 2);
   const rank = (arr, v) => 1 + arr.filter(a => a > v).length;
   const labelAll = la.mode === "teams" || pts.length <= 40;
   const score = p => (p.x * mx[2] - cx) / rx + (p.y * my[2] - cy) / ry;
@@ -1353,7 +1440,9 @@ async function drawLand() {
     pts.forEach((p, i) => {
       const x = zx(X(p.x * mx[2])), y = zy(Y(p.y * my[2])), hi = la.hi.has(p.id), lab = labelAll || hi || extremes.has(p.id) || k >= 2.5;
       if (x < -20 || x > W + 20 || y < -20 || y > H + 20) return;
-      if (la.mode === "teams") g += `<circle cx="${x}" cy="${y}" r="17" fill="${hi ? "var(--b)" : "var(--panel2)"}" stroke="var(--accent)" stroke-width="1.5" data-la="${i}"/><text x="${x}" y="${y + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="${hi ? "#000" : "var(--text)"}" pointer-events="none">${esc(p.n)}</text>`;
+      if (la.mode === "teams") g += `<circle cx="${x}" cy="${y}" r="19" fill="#e9edf5" stroke="${hi ? "var(--b)" : "var(--line)"}" stroke-width="${hi ? 4 : 1.5}" data-la="${i}"/>` +
+        `<text x="${x}" y="${y + 4}" text-anchor="middle" font-size="10" font-weight="700" fill="#333" pointer-events="none">${esc(p.n)}</text>` +
+        `<image href="https://a.espncdn.com/i/teamlogos/nba/500/scoreboard/${p.n.toLowerCase()}.png" x="${x - 15}" y="${y - 15}" width="30" height="30" pointer-events="none" onerror="this.remove()"/>`;
       else g += `<circle cx="${x}" cy="${y}" r="${hi ? 7 : 4.5}" fill="${hi ? "var(--b)" : "var(--accent)"}" opacity="${hi ? 1 : .7}" data-la="${i}"/>` +
         (lab ? `<text x="${x + 7}" y="${y + 4}" font-size="${hi ? 13 : 11}" fill="${hi ? "var(--text)" : "var(--dim)"}" pointer-events="none">${esc(p.n.split(" ").slice(-1)[0])}</text>` : "");
     });
